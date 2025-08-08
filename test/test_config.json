@@ -1,0 +1,35 @@
+{
+  "api_base_url": "http://localhost:8080",
+  "base_url": "http://localhost:8080",
+  "sample_file_path": "sample_data.csv",
+  "test_data_sources": [
+    {
+      "config_name": "TestMySQL",
+      "payload": {
+        "name": "My Test MySQL DB",
+        "type": "MYSQL",
+        "properties": {
+          "host": "127.0.0.1",
+          "port": "3306",
+          "username": "root",
+          "password": "root",
+          "database": "pb-cms-base"
+        }
+      }
+    },
+    {
+      "config_name": "Test SQLServer",
+      "payload": {
+        "name": "My SQLServer DB",
+        "type": "SSQLSERVER",
+        "properties": {
+          "host": "172.16.11.60",
+          "port": "52414",
+          "username": "root",
+          "password": "root",
+          "database": "suqian"
+        }
+      }
+    }
+  ]
+}

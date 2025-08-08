@@ -1,0 +1,181 @@
+server:
+  port: 8080
+  # servlet:
+  #   context-path: /dbcrawler
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+    min-response-size: 1024
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: on_param
+    include-exception: false
+
+spring:
+  application:
+    name: Data Profiler
+  
+  datasource:
+    jdbc-url: jdbc:h2:mem:testdb
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      leak-detection-threshold: 60000
+    
+  jpa:
+    hibernate:
+      ddl-auto: update
+      naming:
+        physical-strategy: org.springframework.boot.orm.jpa.hibernate.SpringPhysicalNamingStrategy
+        implicit-strategy: org.springframework.boot.orm.jpa.hibernate.SpringImplicitNamingStrategy
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+        use_sql_comments: false
+        jdbc:
+          batch_size: 20
+          time_zone: UTC
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+    open-in-view: false
+
+# Application specific configurations
+app:
+  sqlite:
+    database:
+      path: data/core.db
+    
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+      
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: UTC
+    
+  info:
+    name: Data Profiler
+    version: 1.0.0
+    description: Intelligent Database Profiling and Analysis System
+    contact:
+      name: Development Team
+      email: dev@dataprofiler.com
+
+# OpenAPI Documentation Configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+  show-actuator: false
+
+# Management endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+
+  
+  profiling:
+    # Threshold for adaptive profiling strategy (rows)
+    # Tables with row count below this threshold will use exact profiling
+    # Tables with row count above this threshold will use approximate profiling
+    adaptive-threshold: 100000
+    # Sample size for approximate profiling
+    sample-size: 1000
+    # Maximum concurrent profiling tasks
+    max-concurrent-tasks: 5
+    # Task timeout in minutes
+    task-timeout-minutes: 30
+    # Enable automatic retry for failed tasks
+    enable-retry: true
+    # Maximum retry attempts
+    max-retry-attempts: 3
+  
+  thread-pool:
+    profiling:
+      core-pool-size: 2
+      max-pool-size: 5
+      queue-capacity: 100
+      keep-alive-seconds: 60
+      thread-name-prefix: "Profiling-"
+    general:
+      core-pool-size: 2
+      max-pool-size: 4
+      queue-capacity: 50
+      keep-alive-seconds: 60
+      thread-name-prefix: "General-"
+  
+  report:
+    # Maximum report size in MB
+    max-size-mb: 100
+    # Default report format (JSON, CSV, HTML)
+    default-format: JSON
+    # Enable report compression
+    enable-compression: true
+    # Enable report caching
+    enable-caching: true
+    # Cache TTL in hours
+    cache-ttl-hours: 24
+  
+  cleanup:
+    # Enable automatic cleanup
+    enabled: true
+    # Task retention days
+    task-retention-days: 30
+    # Report retention days
+    report-retention-days: 90
+    # Cleanup schedule (cron expression)
+    schedule: "0 0 2 * * ?"
+  
+  security:
+    # Enable authentication
+    enable-auth: false
+    # Enable authorization
+    enable-authz: false
+    # JWT secret key (should be externalized in production)
+    jwt-secret: "mySecretKey"
+    # JWT expiration time in hours
+    jwt-expiration-hours: 24
+  
+  file:
+    # Directory to store uploaded files temporarily
+    upload-dir: ./uploads
+    # Maximum file size for processing
+    max-size: 50MB
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.dataprofiler: DEBUG
+    org.springframework.web: WARN
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/data-profiler.log

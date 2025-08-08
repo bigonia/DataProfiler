@@ -1,0 +1,68 @@
+# Test configuration for integration tests
+spring:
+  profiles:
+    active: test
+  
+  # Test database configuration (H2 in-memory for testing)
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    
+  # JPA configuration for tests
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+    defer-datasource-initialization: true
+    
+  # H2 Console (for debugging)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      
+  # Disable banner for cleaner test output
+  main:
+    banner-mode: off
+    
+# Logging configuration for tests
+logging:
+  level:
+    com.dataprofiler: DEBUG
+    org.springframework: INFO
+    org.hibernate: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    
+# Test-specific configurations
+test:
+  # MySQL connection settings for integration test
+  mysql:
+    host: localhost
+    port: 3306
+    database: pb-cms-base
+    username: root
+    password: root
+    
+  # Test data settings
+  data:
+    cleanup-after-test: true
+    generate-sample-data: false
+    
+# Management endpoints for testing
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
