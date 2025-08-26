@@ -32,12 +32,12 @@ public interface ProfilingService {
     ProfilingTask startProfilingTask(ProfilingTaskRequest request);
 
 
-    ProfilingTask getTask(String taskId);
+    ProfilingTask getTask(Long id);
 
     /**
      * Delete a task by taskId
      */
-    void deleteTask(String taskId);
+    void deleteTask(Long id);
 
 
     /**

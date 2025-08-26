@@ -41,13 +41,13 @@ public class ProfilingTask {
      * Task will process all data sources sequentially
      */
     @JsonIgnore
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-        name = "profiling_task_datasource",
-        joinColumns = @JoinColumn(name = "task_id"),
-        inverseJoinColumns = @JoinColumn(name = "datasource_id")
-    )
-    private List<DataSourceConfig> dataSourceConfigs = new ArrayList<>();
+    @ManyToMany(fetch = FetchType.EAGER)
+//    @JoinTable(
+//        name = "profiling_task_datasource",
+//        joinColumns = @JoinColumn(name = "task_id"),
+//        inverseJoinColumns = @JoinColumn(name = "datasource_id")
+//    )
+    private List<DataSourceConfig> dataSourceConfigs;
 
     /**
      * Total number of data sources to be processed
@@ -69,7 +69,7 @@ public class ProfilingTask {
     /**
      * 存储发起任务时的原始请求体JSON，用于追溯和调试。
      */
-    @Lob
+//    @Lob
     @Column(nullable = false)
     private String requestPayload;
 

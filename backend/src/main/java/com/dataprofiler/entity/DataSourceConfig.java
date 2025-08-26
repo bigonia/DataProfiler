@@ -1,7 +1,6 @@
 package com.dataprofiler.entity;
 
 import com.dataprofiler.utils.JpaMapConverter;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -37,6 +36,8 @@ public class DataSourceConfig {
     @Column(nullable = false)
     private DataSourceType type;
 
+    private String description;
+
     /**
      * Dynamic properties stored as JSON
      * Content varies based on data source type:
@@ -46,9 +47,6 @@ public class DataSourceConfig {
     @Column(nullable = false)
     @Convert(converter = JpaMapConverter.class)
     private Map<String, String> properties;
-
-    @Column(nullable = false)
-    private boolean active = true;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

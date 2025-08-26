@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.sql.*;
 import java.util.*;
+import java.util.LinkedHashMap;
 
 /**
  * SQLite database profiler implementation
@@ -89,6 +90,64 @@ public class SqliteProfiler implements IDatabaseProfiler {
         return "SQLITE".equalsIgnoreCase(dataSourceType) || "FILE".equalsIgnoreCase(dataSourceType);
     }
 
+    @Override
+    public Map<String, List<String>> getDatabaseMetadata(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting database metadata for SQLite data source: {}", dataSourceConfig.getSourceId());
+        
+        Map<String, List<String>> schemasWithTables = new LinkedHashMap<>();
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            // SQLite has a default schema called 'main'
+            List<String> tables = getTablesForSchema(connection, "main");
+            schemasWithTables.put("main", tables);
+            
+            logger.info("Retrieved {} tables for SQLite data source: {}", tables.size(), dataSourceConfig.getSourceId());
+            return schemasWithTables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting database metadata for SQLite data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve SQLite database metadata", e);
+        }
+    }
+
+    @Override
+    public List<String> getSchemas(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting schemas for SQLite data source: {}", dataSourceConfig.getSourceId());
+        
+        // For FILE type data sources, return sheet names as schemas
+        if (DataSourceConfig.DataSourceType.FILE.equals(dataSourceConfig.getType())) {
+            return getFileSheetsAsSchemas(dataSourceConfig);
+        }
+        
+        // SQLite typically has only 'main' schema
+        List<String> schemas = new ArrayList<>();
+        schemas.add("main");
+        
+        logger.info("Retrieved {} schemas for SQLite data source: {}", schemas.size(), dataSourceConfig.getSourceId());
+        return schemas;
+    }
+
+    @Override
+    public List<String> getTables(DataSourceConfig dataSourceConfig, String schema) throws Exception {
+        logger.info("Getting tables for SQLite schema: {} in data source: {}", schema, dataSourceConfig.getSourceId());
+        
+        // For FILE type data sources, return tables that match the schema (sheet name)
+        if (DataSourceConfig.DataSourceType.FILE.equals(dataSourceConfig.getType())) {
+            return getFileTablesForSheet(dataSourceConfig, schema);
+        }
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            List<String> tables = getTablesForSchema(connection, schema);
+            
+            logger.info("Retrieved {} tables for SQLite schema: {}", tables.size(), schema);
+            return tables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting tables for SQLite schema: {} in data source: {}", schema, dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve SQLite tables for schema: " + schema, e);
+        }
+    }
+
     /**
      * Create database connection
      */
@@ -104,7 +163,19 @@ public class SqliteProfiler implements IDatabaseProfiler {
             props.setProperty("password", dataSource.getPassword());
         }
         
-        return DriverManager.getConnection(url, props);
+        Connection conn = DriverManager.getConnection(url, props);
+        
+        // Set SQLite pragmas to prevent database locking issues
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("PRAGMA journal_mode = WAL");
+            stmt.execute("PRAGMA synchronous = NORMAL");
+            stmt.execute("PRAGMA busy_timeout = 30000"); // 30 seconds timeout
+            stmt.execute("PRAGMA foreign_keys = ON");
+        } catch (SQLException e) {
+            logger.warn("Failed to set SQLite pragmas, continuing anyway", e);
+        }
+        
+        return conn;
     }
 
     /**
@@ -125,7 +196,32 @@ public class SqliteProfiler implements IDatabaseProfiler {
             return "jdbc:sqlite:" + dataSource.getDatabaseName();
         }
         
-        throw new IllegalArgumentException("Invalid SQLite configuration: missing database path");
+        return "jdbc:sqlite:memory:"; // Default to in-memory database
+    }
+
+    /**
+     * Get tables for a specific schema (SQLite typically uses 'main')
+     * 
+     * @param connection Database connection
+     * @param schema Schema name (typically 'main' for SQLite)
+     * @return List of table names
+     * @throws SQLException if query fails
+     */
+    private List<String> getTablesForSchema(Connection connection, String schema) throws SQLException {
+        List<String> tables = new ArrayList<>();
+        
+        String sql = "SELECT name FROM sqlite_master " +
+                    "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' " +
+                    "ORDER BY name";
+        
+        try (PreparedStatement stmt = connection.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                tables.add(rs.getString("name"));
+            }
+        }
+        
+        return tables;
     }
 
     /**
@@ -473,5 +569,77 @@ public class SqliteProfiler implements IDatabaseProfiler {
      */
     private String escapeColumnName(String columnName) {
         return "\"" + columnName.replace("\"", "\"\"") + "\"";
+    }
+    
+    /**
+     * Get sheet names as schemas for FILE type data sources
+     * This method extracts unique sheet names from table names in the format [fileID]_[sheetName]
+     */
+    private List<String> getFileSheetsAsSchemas(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting file sheets as schemas for data source: {}", dataSourceConfig.getSourceId());
+        
+        Set<String> sheetNames = new LinkedHashSet<>();
+        String fileIdPrefix = dataSourceConfig.getSourceId() + "_";
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            String sql = "SELECT name FROM sqlite_master " +
+                        "WHERE type = 'table' AND name LIKE ? AND name NOT LIKE 'sqlite_%' " +
+                        "ORDER BY name";
+            
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, fileIdPrefix + "%");
+                
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String tableName = rs.getString("name");
+                        // Extract sheet name from table name format: [fileID]_[sheetName]
+                        if (tableName.startsWith(fileIdPrefix)) {
+                            String sheetName = tableName.substring(fileIdPrefix.length());
+                            sheetNames.add(sheetName);
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Error getting file sheets for data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve file sheets", e);
+        }
+        
+        List<String> result = new ArrayList<>(sheetNames);
+        logger.info("Retrieved {} sheet names for FILE data source: {}", result.size(), dataSourceConfig.getSourceId());
+        return result;
+    }
+    
+    /**
+     * Get tables for a specific sheet (schema) in FILE type data sources
+     * Returns the table name that corresponds to the given sheet name
+     */
+    private List<String> getFileTablesForSheet(DataSourceConfig dataSourceConfig, String sheetName) throws Exception {
+        logger.info("Getting tables for sheet: {} in data source: {}", sheetName, dataSourceConfig.getSourceId());
+        
+        List<String> tables = new ArrayList<>();
+        String expectedTableName = dataSourceConfig.getSourceId() + "_" + sheetName;
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            String sql = "SELECT name FROM sqlite_master " +
+                        "WHERE type = 'table' AND name = ? " +
+                        "ORDER BY name";
+            
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, expectedTableName);
+                
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        tables.add(rs.getString("name"));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Error getting tables for sheet: {} in data source: {}", sheetName, dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve tables for sheet: " + sheetName, e);
+        }
+        
+        logger.info("Retrieved {} tables for sheet: {} in data source: {}", tables.size(), sheetName, dataSourceConfig.getSourceId());
+        return tables;
     }
 }

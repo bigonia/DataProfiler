@@ -1,0 +1,548 @@
+openapi: 3.0.0
+info:
+  title: Report Management API
+  version: 1.0.0
+  description: Simplified APIs for structured profiling report management
+servers:
+  - url: http://172.16.11.64:8080/api
+paths:
+  /reports/summary:
+    get:
+      summary: Get report summaries by task ID
+      description: Retrieve lightweight summary information for specified task. Uses pre-computed summary data for optimal performance. Supports table-based pagination.
+      tags:
+        - Report Management
+      parameters:
+        - name: taskId
+          in: query
+          description: Task ID
+          required: true
+          schema:
+            type: string
+            example: f6713573-fe11-4de7-8c06-8da2792454c4
+        - name: page
+          in: query
+          description: Page number (0-based)
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 0
+            minimum: 0
+            example: 0
+        - name: pageSize
+          in: query
+          description: Page size (number of tables per page)
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 20
+            minimum: 1
+            example: 20
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimplePaginationResponseReportSummaryDto'
+  /reports/detailed:
+    post:
+      summary: Get detailed reports with filtering and pagination
+      description: Retrieve detailed profiling reports with advanced filtering and pagination. Supports data source scope filtering, schema/table selection, and table-based pagination.
+      tags:
+        - Report Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetailedReportRequest'
+      responses:
+        '200':
+          description: Detailed reports retrieved successfully
+          content:
+            application/json:
+              schema:
+                  $ref: '#/components/schemas/SimplePaginationResponse'
+        '400':
+          description: Bad request - Invalid request parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                  status:
+                    type: integer
+                    example: 400
+                  error:
+                    type: string
+                    example: "Bad Request"
+                  message:
+                    type: string
+                    example: "Invalid pagination parameters"
+                  path:
+                    type: string
+                    example: "/api/reports/detailed"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                  status:
+                    type: integer
+                    example: 500
+                  error:
+                    type: string
+                    example: "Internal Server Error"
+                  message:
+                    type: string
+                    example: "An unexpected error occurred"
+                  path:
+                    type: string
+                    example: "/api/reports/detailed"
+  /reports/infolist:
+    get:
+      summary: Get all report basic information
+      description: Retrieve basic information for all reports including task info, data source info, timestamps, report size, table count, etc. Used for report listing pages.
+      tags:
+        - Report Management
+      parameters:
+        - name: page
+          in: query
+          description: Page number (0-based)
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 0
+            minimum: 0
+            example: 0
+        - name: size
+          in: query
+          description: Page size
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 20
+            minimum: 1
+            example: 20
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageReportInfoDto'
+components:
+  schemas:
+    ReportSummaryRequest:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID
+          example: f6713573-fe11-4de7-8c06-8da2792454c4
+    ReportSummaryDto:
+      type: object
+      properties:
+        # Add properties based on actual ReportSummaryDto structure
+        id:
+          type: string
+        name:
+          type: string
+    SimplePaginationResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/StructuredReportDto'
+          description: The actual content/data for current page
+        page:
+          type: integer
+          description: Current page number (0-based)
+          example: 0
+        pageSize:
+          type: integer
+          description: Number of items per page
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          description: Total number of elements across all pages
+          example: 40
+        totalPages:
+          type: integer
+          description: Total number of pages
+          example: 2
+        first:
+          type: boolean
+          description: Whether this is the first page
+          example: true
+        last:
+          type: boolean
+          description: Whether this is the last page
+          example: false
+        numberOfElements:
+          type: integer
+          description: Number of elements in current page
+          example: 1
+        empty:
+          type: boolean
+          description: Whether the current page is empty
+          example: false
+    
+    DetailedReportRequest:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID for reports
+          example: "f6713573-fe11-4de7-8c06-8da2792454c4"
+        filters:
+          $ref: '#/components/schemas/FilterCriteria'
+        page:
+          type: integer
+          minimum: 0
+          description: Page number (0-based)
+          example: 0
+          default: 0
+        pageSize:
+          type: integer
+          minimum: 1
+          description: Number of items per page
+          example: 20
+          default: 20
+        format:
+          type: string
+          description: Output format
+          example: "standard"
+          enum: ["standard", "compact"]
+          default: "standard"
+    FilterCriteria:
+      type: object
+      description: Filtering criteria for detailed reports
+      properties:
+        dataSources:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/DataSourceScope'
+          description: Map of data source ID to schema/table configuration
+          example: {"ds-pg-01": {"schemas": {"public": ["orders", "customers"], "marketing": []}}, "ds-file-01": {}}
+    DataSourceScope:
+      type: object
+      description: Data source scope configuration
+      properties:
+        schemas:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Map of schema name to list of table names. Empty list means all tables in schema.
+    StructuredReportDto:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID
+          example: "f6713573-fe11-4de7-8c06-8da2792454c4"
+        dataSourceId:
+          type: string
+          description: Data source identifier
+          example: "mysql_001_1755762139825"
+        dataSourceType:
+          type: string
+          description: Data source type
+          example: "MYSQL"
+          enum: ["MYSQL", "POSTGRESQL", "ORACLE", "SQLSERVER", "CSV", "EXCEL", "JSON"]
+        database:
+          $ref: '#/components/schemas/DatabaseInfo'
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableReport'
+          description: List of profiled tables
+        generatedAt:
+          type: string
+          format: date-time
+          description: Report generation timestamp
+          example: "2025-08-21T15:42:43.691"
+    
+    DatabaseInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Database name
+          example: "graininfor"
+    
+    TableReport:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Table name
+          example: "cansuset"
+        schemaName:
+          type: string
+          description: Schema name (null for file sources)
+          example: "graininfor"
+          nullable: true
+        rowCount:
+          type: integer
+          format: int64
+          description: Number of rows in table
+          example: 1500
+        comment:
+          type: string
+          description: Table comment/description
+          example: "User information table"
+          nullable: true
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/ColumnReport'
+          description: List of column profiling reports
+        sampleRows:
+          type: object
+          description: Sample rows data (format depends on request parameter)
+          nullable: true
+        useSample:
+          type: boolean
+          description: Whether sample data is used
+          example: false
+    
+    ColumnReport:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Column name
+          example: "id"
+        dataType:
+          type: string
+          description: Column data type
+          example: "INTEGER"
+        nullable:
+          type: boolean
+          description: Whether column is nullable
+          example: false
+        primaryKey:
+          type: boolean
+          description: Whether column is primary key
+          example: true
+        uniqueCount:
+          type: integer
+          format: int64
+          description: Number of unique values
+          example: 1500
+        nullCount:
+          type: integer
+          format: int64
+          description: Number of null values
+          example: 0
+        minValue:
+          type: string
+          description: Minimum value
+          example: "1"
+          nullable: true
+        maxValue:
+          type: string
+          description: Maximum value
+          example: "1500"
+          nullable: true
+        avgLength:
+          type: number
+          format: double
+          description: Average length for string columns
+          example: 10.5
+          nullable: true
+    ReportInfoDto:
+      type: object
+      properties:
+        # Add properties based on actual ReportInfoDto structure
+        taskId:
+          type: string
+        dataSourceInfo:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        reportSize:
+          type: integer
+        tableCount:
+          type: integer
+    SimplePaginationResponseReportSummaryDto:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportSummaryDto'
+        pageable:
+          type: object
+          properties:
+            pageNumber:
+              type: integer
+            pageSize:
+              type: integer
+            offset:
+              type: integer
+            paged:
+              type: boolean
+            unpaged:
+              type: boolean
+            sort:
+              type: object
+              properties:
+                empty:
+                  type: boolean
+                sorted:
+                  type: boolean
+                unsorted:
+                  type: boolean
+        last:
+          type: boolean
+        totalPages:
+          type: integer
+        totalElements:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
+        sort:
+          type: object
+          properties:
+            empty:
+              type: boolean
+            sorted:
+              type: boolean
+            unsorted:
+              type: boolean
+        first:
+          type: boolean
+        numberOfElements:
+          type: integer
+        empty:
+          type: boolean
+    SimplePaginationResponseStructuredReportDto:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/StructuredReportDto'
+        pageable:
+          type: object
+          properties:
+            pageNumber:
+              type: integer
+            pageSize:
+              type: integer
+            offset:
+              type: integer
+            paged:
+              type: boolean
+            unpaged:
+              type: boolean
+            sort:
+              type: object
+              properties:
+                empty:
+                  type: boolean
+                sorted:
+                  type: boolean
+                unsorted:
+                  type: boolean
+        last:
+          type: boolean
+        totalPages:
+          type: integer
+        totalElements:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
+        sort:
+          type: object
+          properties:
+            empty:
+              type: boolean
+            sorted:
+              type: boolean
+            unsorted:
+              type: boolean
+        first:
+          type: boolean
+        numberOfElements:
+          type: integer
+        empty:
+          type: boolean
+    PageReportInfoDto:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportInfoDto'
+        pageable:
+          type: object
+          properties:
+            pageNumber:
+              type: integer
+            pageSize:
+              type: integer
+            offset:
+              type: integer
+            paged:
+              type: boolean
+            unpaged:
+              type: boolean
+            sort:
+              type: object
+              properties:
+                empty:
+                  type: boolean
+                sorted:
+                  type: boolean
+                unsorted:
+                  type: boolean
+        last:
+          type: boolean
+        totalPages:
+          type: integer
+        totalElements:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
+        sort:
+          type: object
+          properties:
+            empty:
+              type: boolean
+            sorted:
+              type: boolean
+            unsorted:
+              type: boolean
+        first:
+          type: boolean
+        numberOfElements:
+          type: integer
+        empty:
+          type: boolean

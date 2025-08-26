@@ -2,7 +2,6 @@ package com.dataprofiler.profiler.impl;
 
 import com.dataprofiler.dto.internal.RawProfileDataDto;
 import com.dataprofiler.dto.request.ProfilingTaskRequest;
-
 import com.dataprofiler.entity.DataSourceConfig;
 import com.dataprofiler.profiler.IDatabaseProfiler;
 import org.slf4j.Logger;
@@ -38,19 +37,26 @@ public class MySqlProfiler implements IDatabaseProfiler {
             List<RawProfileDataDto.TableData> tables = new ArrayList<>();
             
             // Get tables to profile based on scope
-            List<String> tablesToProfile = getTablesList(connection, scope);
-            
-            for (String tableName : tablesToProfile) {
-                try {
-                    RawProfileDataDto.TableData tableData = profileTable(connection, tableName);
-                    if (tableData != null) {
-                        tables.add(tableData);
+//            List<String> tablesToProfile = getTablesList(connection, scope);
+            Map<String, List<String>> tablesList = getTablesList(connection, scope);
+
+            for (Map.Entry<String, List<String>> stringListEntry : tablesList.entrySet()) {
+                String schemaName = stringListEntry.getKey();
+                // Use USE statement to switch database in MySQL
+                try (Statement useStmt = connection.createStatement()) {
+                    useStmt.execute("USE `" + schemaName + "`");
+                }
+                for (String tableName : stringListEntry.getValue()) {
+                    try {
+                        RawProfileDataDto.TableData tableData = profileTable(connection, tableName, schemaName);
+                        if (tableData != null) {
+                            tables.add(tableData);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Failed to profile table: {} in schema: {}", tableName, schemaName, e);
                     }
-                } catch (Exception e) {
-                    logger.warn("Failed to profile table: {}", tableName, e);
                 }
             }
-            
             rawData.setTables(tables);
             
             // Add database metadata
@@ -89,6 +95,76 @@ public class MySqlProfiler implements IDatabaseProfiler {
         return "MYSQL".equalsIgnoreCase(dataSourceType);
     }
 
+    @Override
+    public Map<String, List<String>> getDatabaseMetadata(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting database metadata for MySQL data source: {}", dataSourceConfig.getSourceId());
+        
+        Map<String, List<String>> schemasWithTables = new LinkedHashMap<>();
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            // For MySQL, we typically work with the current database as the schema
+            String currentDatabase = connection.getCatalog();
+            if (currentDatabase == null || currentDatabase.isEmpty()) {
+                currentDatabase = dataSourceConfig.getDatabaseName();
+            }
+            
+            List<String> tables = getTablesForDatabase(connection, currentDatabase);
+            schemasWithTables.put(currentDatabase, tables);
+            
+            logger.info("Retrieved {} tables for MySQL database: {}", tables.size(), currentDatabase);
+            return schemasWithTables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting database metadata for MySQL data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve MySQL database metadata", e);
+        }
+    }
+
+    @Override
+    public List<String> getSchemas(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting schemas for MySQL data source: {}", dataSourceConfig.getSourceId());
+        
+        List<String> schemas = new ArrayList<>();
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            // For MySQL, schemas are equivalent to databases
+            String sql = "SHOW DATABASES";
+            try (PreparedStatement stmt = connection.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String database = rs.getString(1);
+                    // Filter out system databases
+                    if (!isSystemDatabase(database)) {
+                        schemas.add(database);
+                    }
+                }
+            }
+            
+            logger.info("Retrieved {} schemas for MySQL data source: {}", schemas.size(), dataSourceConfig.getSourceId());
+            return schemas;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting schemas for MySQL data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve MySQL schemas", e);
+        }
+    }
+
+    @Override
+    public List<String> getTables(DataSourceConfig dataSourceConfig, String schema) throws Exception {
+        logger.info("Getting tables for MySQL schema: {} in data source: {}", schema, dataSourceConfig.getSourceId());
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            List<String> tables = getTablesForDatabase(connection, schema);
+            
+            logger.info("Retrieved {} tables for MySQL schema: {}", tables.size(), schema);
+            return tables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting tables for MySQL schema: {} in data source: {}", schema, dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve MySQL tables for schema: " + schema, e);
+        }
+    }
+
     /**
      * Create database connection
      */
@@ -120,16 +196,20 @@ public class MySqlProfiler implements IDatabaseProfiler {
     /**
      * Get list of tables to profile based on scope
      */
-    private List<String> getTablesList(Connection connection, ProfilingTaskRequest.DataSourceScope scope) throws SQLException {
-        List<String> tables = new ArrayList<>();
-        
+    private Map<String, List<String>> getTablesList(Connection connection, ProfilingTaskRequest.DataSourceScope scope) throws SQLException {
+        HashMap<String, List<String>> map = new HashMap<>();
         if (scope == null || scope.getSchemas() == null || scope.getSchemas().isEmpty()) {
-            // Profile all tables in the database
-            String sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'";
+            // Profile all tables in the current database
+            String sql = "SELECT table_name, table_schema FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'";
             try (PreparedStatement stmt = connection.prepareStatement(sql);
                  ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    tables.add(rs.getString("table_name"));
+                    String tableName = rs.getString("table_name");
+                    String schemaName = rs.getString("table_schema");
+                    if (!map.containsKey(schemaName)) {
+                        map.put(schemaName, new ArrayList<>());
+                    }
+                    map.get(schemaName).add(tableName);
                 }
             }
         } else {
@@ -145,44 +225,51 @@ public class MySqlProfiler implements IDatabaseProfiler {
                         stmt.setString(1, schema);
                         try (ResultSet rs = stmt.executeQuery()) {
                             while (rs.next()) {
-                                tables.add(rs.getString("table_name"));
+//                                tables.add(rs.getString("table_name"));
+                                String tableName = rs.getString("table_name");
+                                if (!map.containsKey(schema)) {
+                                    map.put(schema, new ArrayList<>());
+                                }
+                                map.get(schema).add(tableName);
                             }
                         }
                     }
                 } else {
                     // Include specific tables
-                    tables.addAll(tablesToInclude);
+//                    tables.addAll(tablesToInclude);
+                    map.put(schema, tablesToInclude);
                 }
             }
         }
         
-        return tables;
+        return map;
     }
 
     /**
      * Profile a single table using adaptive strategy
      */
-    private RawProfileDataDto.TableData profileTable(Connection connection, String tableName) throws SQLException {
-        logger.debug("Profiling table: {}", tableName);
+    private RawProfileDataDto.TableData profileTable(Connection connection, String tableName, String schemaName) throws SQLException {
+        logger.debug("Profiling schema: {} table: {}", schemaName, tableName);
         
-        RawProfileDataDto.TableData tableData = new RawProfileDataDto.TableData(tableName, connection.getCatalog());
+        RawProfileDataDto.TableData tableData = new RawProfileDataDto.TableData(tableName, schemaName);
         
         // Get table metadata
-        getTableMetadata(connection, tableData);
+        getTableMetadata(connection, tableData, schemaName);
         
         // Get row count (adaptive: exact vs approximate)
-        long rowCount = getRowCount(connection, tableName);
+        long rowCount = getRowCount(connection, tableName, schemaName);
         tableData.setRowCount(rowCount);
         
         // Determine if we should use sampling for large tables
         boolean useSampling = rowCount > LARGE_TABLE_THRESHOLD;
-        
+        tableData.setUseSample(useSampling);
+
         // Get column information and profile each column
-        List<RawProfileDataDto.ColumnData> columns = profileColumns(connection, tableName, useSampling);
+        List<RawProfileDataDto.ColumnData> columns = profileColumns(connection, tableName, schemaName, useSampling);
         tableData.setColumns(columns);
         
         // Get index information
-        List<RawProfileDataDto.IndexData> indexes = getIndexes(connection, tableName);
+        List<RawProfileDataDto.IndexData> indexes = getIndexes(connection, tableName, schemaName);
         tableData.setIndexes(indexes);
         
         return tableData;
@@ -191,11 +278,12 @@ public class MySqlProfiler implements IDatabaseProfiler {
     /**
      * Get table metadata
      */
-    private void getTableMetadata(Connection connection, RawProfileDataDto.TableData tableData) throws SQLException {
-        String sql = "SELECT table_type, engine, table_comment FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?";
+    private void getTableMetadata(Connection connection, RawProfileDataDto.TableData tableData, String schemaName) throws SQLException {
+        String sql = "SELECT table_type, engine, table_comment FROM information_schema.tables WHERE table_schema = ? AND table_name = ?";
         
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            stmt.setString(1, tableData.getTableName());
+            stmt.setString(1, schemaName);
+            stmt.setString(2, tableData.getTableName());
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     tableData.setTableType(rs.getString("table_type"));
@@ -212,21 +300,22 @@ public class MySqlProfiler implements IDatabaseProfiler {
     /**
      * Get row count using adaptive strategy
      */
-    private long getRowCount(Connection connection, String tableName) throws SQLException {
+    private long getRowCount(Connection connection, String tableName, String schemaName) throws SQLException {
         // First try to get approximate count from information_schema (fast)
-        String approxSql = "SELECT table_rows FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?";
+        String approxSql = "SELECT table_rows FROM information_schema.tables WHERE table_schema = ? AND table_name = ?";
         
         try (PreparedStatement stmt = connection.prepareStatement(approxSql)) {
-            stmt.setString(1, tableName);
+            stmt.setString(1, schemaName);
+            stmt.setString(2, tableName);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     long approxCount = rs.getLong("table_rows");
                     
                     // If approximate count is reasonable, use exact count for small tables
                     if (approxCount < LARGE_TABLE_THRESHOLD) {
-                        return getExactRowCount(connection, tableName);
+                        return getExactRowCount(connection, tableName, schemaName);
                     } else {
-                        logger.debug("Using approximate row count for large table {}: {}", tableName, approxCount);
+                        logger.debug("Using approximate row count for large table {}.{}: {}", schemaName, tableName, approxCount);
                         return approxCount;
                     }
                 }
@@ -234,14 +323,14 @@ public class MySqlProfiler implements IDatabaseProfiler {
         }
         
         // Fallback to exact count
-        return getExactRowCount(connection, tableName);
+        return getExactRowCount(connection, tableName, schemaName);
     }
 
     /**
      * Get exact row count
      */
-    private long getExactRowCount(Connection connection, String tableName) throws SQLException {
-        String sql = "SELECT COUNT(*) FROM " + tableName;
+    private long getExactRowCount(Connection connection, String tableName, String schemaName) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM `" + schemaName + "`.`" + tableName + "`";
         
         try (PreparedStatement stmt = connection.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
@@ -256,12 +345,13 @@ public class MySqlProfiler implements IDatabaseProfiler {
     /**
      * Profile all columns in a table
      */
-    private List<RawProfileDataDto.ColumnData> profileColumns(Connection connection, String tableName, boolean useSampling) throws SQLException {
+    private List<RawProfileDataDto.ColumnData> profileColumns(Connection connection, String tableName, String schemaName, boolean useSampling) throws SQLException {
         List<RawProfileDataDto.ColumnData> columns = new ArrayList<>();
         
         // Get column metadata
         DatabaseMetaData metaData = connection.getMetaData();
-        try (ResultSet rs = metaData.getColumns(connection.getCatalog(), null, tableName, null)) {
+        // For MySQL, catalog is the database name (schema), and schema parameter should be null
+        try (ResultSet rs = metaData.getColumns(schemaName, null, tableName, null)) {
             while (rs.next()) {
                 RawProfileDataDto.ColumnData columnData = new RawProfileDataDto.ColumnData();
                 columnData.setColumnName(rs.getString("COLUMN_NAME"));
@@ -273,7 +363,7 @@ public class MySqlProfiler implements IDatabaseProfiler {
                 columnData.setDefaultValue(rs.getString("COLUMN_DEF"));
                 
                 // Profile column data
-                profileColumnData(connection, tableName, columnData, useSampling);
+                profileColumnData(connection, tableName, schemaName, columnData, useSampling);
                 
                 columns.add(columnData);
             }
@@ -285,7 +375,7 @@ public class MySqlProfiler implements IDatabaseProfiler {
     /**
      * Profile individual column data
      */
-    private void profileColumnData(Connection connection, String tableName, RawProfileDataDto.ColumnData columnData, boolean useSampling) throws SQLException {
+    private void profileColumnData(Connection connection, String tableName, String schemaName, RawProfileDataDto.ColumnData columnData, boolean useSampling) throws SQLException {
         String columnName = columnData.getColumnName();
         
         // Build profiling query
@@ -294,7 +384,7 @@ public class MySqlProfiler implements IDatabaseProfiler {
         sql.append("COUNT(*) as total_count, ");
         sql.append("COUNT(").append(columnName).append(") as non_null_count, ");
         sql.append("COUNT(DISTINCT ").append(columnName).append(") as unique_count");
-        
+
         // Add min/max for numeric and date types
         if (isNumericType(columnData.getDataType()) || isDateType(columnData.getDataType())) {
             sql.append(", MIN(").append(columnName).append(") as min_value");
@@ -308,7 +398,7 @@ public class MySqlProfiler implements IDatabaseProfiler {
             sql.append(", MIN(LENGTH(").append(columnName).append(")) as min_length");
         }
         
-        sql.append(" FROM ").append(tableName);
+        sql.append(" FROM ").append("`").append(schemaName).append("`").append(".").append(tableName);
         
         // Add sampling for large tables
         if (useSampling) {
@@ -342,17 +432,19 @@ public class MySqlProfiler implements IDatabaseProfiler {
                     // Column doesn't exist in result set, ignore
                 }
             }
+        }catch (SQLException e) {
+            logger.warn("Failed to profile column: {} in table: {} in schema: {} ,sql: {} ", columnName, tableName, schemaName,sql, e);
         }
         
         // Get sample values
-        getSampleValues(connection, tableName, columnData, useSampling);
+        getSampleValues(connection, tableName, schemaName, columnData, useSampling);
     }
 
     /**
      * Get sample values for a column
      */
-    private void getSampleValues(Connection connection, String tableName, RawProfileDataDto.ColumnData columnData, boolean useSampling) throws SQLException {
-        String sql = "SELECT DISTINCT " + columnData.getColumnName() + " FROM " + tableName + 
+    private void getSampleValues(Connection connection, String tableName, String schemaName, RawProfileDataDto.ColumnData columnData, boolean useSampling) throws SQLException {
+        String sql = "SELECT DISTINCT " + columnData.getColumnName() + " FROM `" + schemaName + "`." + tableName +
                     " WHERE " + columnData.getColumnName() + " IS NOT NULL";
         
         if (useSampling) {
@@ -375,10 +467,10 @@ public class MySqlProfiler implements IDatabaseProfiler {
     /**
      * Get index information for a table
      */
-    private List<RawProfileDataDto.IndexData> getIndexes(Connection connection, String tableName) throws SQLException {
+    private List<RawProfileDataDto.IndexData> getIndexes(Connection connection, String tableName, String schemaName) throws SQLException {
         List<RawProfileDataDto.IndexData> indexes = new ArrayList<>();
         
-        String sql = "SHOW INDEX FROM " + tableName;
+        String sql = "SHOW INDEX FROM `" + schemaName + "`." + tableName;
         
         try (PreparedStatement stmt = connection.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
@@ -452,5 +544,42 @@ public class MySqlProfiler implements IDatabaseProfiler {
             dataType.toUpperCase().contains("TEXT") ||
             dataType.toUpperCase().contains("BLOB")
         );
+    }
+
+    /**
+     * Get tables for a specific database
+     * 
+     * @param connection Database connection
+     * @param database Database name
+     * @return List of table names
+     * @throws SQLException if query fails
+     */
+    private List<String> getTablesForDatabase(Connection connection, String database) throws SQLException {
+        List<String> tables = new ArrayList<>();
+        
+        String sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'";
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+            stmt.setString(1, database);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    tables.add(rs.getString("TABLE_NAME"));
+                }
+            }
+        }
+        
+        return tables;
+    }
+
+    /**
+     * Check if a database is a system database that should be filtered out
+     * 
+     * @param database Database name
+     * @return true if it's a system database
+     */
+    private boolean isSystemDatabase(String database) {
+        return "information_schema".equalsIgnoreCase(database) ||
+               "performance_schema".equalsIgnoreCase(database) ||
+               "mysql".equalsIgnoreCase(database) ||
+               "sys".equalsIgnoreCase(database);
     }
 }

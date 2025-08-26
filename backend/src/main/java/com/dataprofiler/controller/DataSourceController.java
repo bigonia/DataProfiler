@@ -1,5 +1,6 @@
 package com.dataprofiler.controller;
 
+import com.dataprofiler.dto.response.DataSourceInfoDto;
 import com.dataprofiler.entity.DataSourceConfig;
 import com.dataprofiler.service.DataSourceService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Map;
 
@@ -27,7 +29,7 @@ import java.util.Map;
  * Provides endpoints for CRUD operations on data sources
  */
 @RestController
-@RequestMapping("/datasources")
+@RequestMapping("/api/datasources")
 @Tag(name = "Data Source Management", description = "APIs for managing data source configurations")
 @Validated
 public class DataSourceController {
@@ -138,22 +140,22 @@ public class DataSourceController {
     /**
      * Delete data source (soft delete)
      */
-    @DeleteMapping("/{sourceId}")
+    @DeleteMapping("/{id}")
     @Operation(summary = "Delete data source", description = "Delete a data source configuration")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "204", description = "Data source deleted successfully"),
         @ApiResponse(responseCode = "404", description = "Data source not found")
     })
     public ResponseEntity<Void> deleteDataSource(
-            @Parameter(description = "Data source unique identifier") @PathVariable @NotBlank String sourceId) {
+            @Parameter(description = "Data source unique identifier") @PathVariable @NotNull Long id) {
         
-        logger.info("Deleting data source: {}", sourceId);
+        logger.info("Deleting data source: {}", id);
         
         try {
-            dataSourceService.deleteDataSource(sourceId);
+            dataSourceService.deleteDataSource(id);
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException e) {
-            logger.warn("Data source not found for deletion: {}", sourceId);
+            logger.warn("Data source not found for deletion: {}", id);
             return ResponseEntity.notFound().build();
         }
     }
@@ -169,7 +171,7 @@ public class DataSourceController {
         @ApiResponse(responseCode = "404", description = "Data source not found")
     })
     public ResponseEntity<Map<String, Object>> testDataSourceConnection(
-            @Parameter(description = "Data source unique identifier") @PathVariable @NotBlank String sourceId) {
+            @Parameter(description = "Data source unique identifier") @PathVariable("sourceId")@NotBlank String sourceId) {
         
         logger.info("Testing connection for data source: {}", sourceId);
         
@@ -182,6 +184,16 @@ public class DataSourceController {
                     (com.dataprofiler.service.impl.DataSourceServiceImpl) dataSourceService;
                 com.dataprofiler.dto.ConnectionTestResult testResult = serviceImpl.testConnectionDetailed(dataSource);
                 
+                // If connection test is successful, refresh the cache
+                if (testResult.isSuccess()) {
+                    try {
+                        dataSourceService.refreshDatasourceInfoCache(sourceId);
+                        logger.info("Cache refreshed after successful connection test for data source: {}", sourceId);
+                    } catch (Exception e) {
+                        logger.warn("Failed to refresh cache after connection test for data source: {}", sourceId, e);
+                    }
+                }
+                
                 Map<String, Object> result = Map.of(
                     "success", testResult.isSuccess(),
                     "message", testResult.getMessage(),
@@ -193,6 +205,16 @@ public class DataSourceController {
             } else {
                 // Fallback to basic test
                 boolean connectionSuccess = dataSourceService.testConnection(dataSource);
+                
+                // If connection test is successful, refresh the cache
+                if (connectionSuccess) {
+                    try {
+                        dataSourceService.refreshDatasourceInfoCache(sourceId);
+                        logger.info("Cache refreshed after successful connection test for data source: {}", sourceId);
+                    } catch (Exception e) {
+                        logger.warn("Failed to refresh cache after connection test for data source: {}", sourceId, e);
+                    }
+                }
                 
                 Map<String, Object> result = Map.of(
                     "success", connectionSuccess,
@@ -261,6 +283,117 @@ public class DataSourceController {
         
         List<DataSourceConfig> dataSources = dataSourceService.getDataSourcesByType(type);
         return ResponseEntity.ok(dataSources);
+    }
+
+//    /**
+//     * Get all schemas for a given data source
+//     */
+//    @GetMapping("/{sourceId}/schemas")
+//    @Operation(summary = "Get all schemas for a data source", description = "Retrieve all schemas (databases/namespaces) for a specific data source")
+//    @ApiResponses(value = {
+//        @ApiResponse(responseCode = "200", description = "Schemas retrieved successfully"),
+//        @ApiResponse(responseCode = "404", description = "Data source not found")
+//    })
+//    public ResponseEntity<List<String>> getSchemas(
+//            @Parameter(description = "Data source unique identifier") @PathVariable @NotBlank String sourceId) {
+//
+//        logger.info("Retrieving schemas for data source: {}", sourceId);
+//
+//        try {
+//            List<String> schemas = dataSourceService.getSchemas(sourceId);
+//            return ResponseEntity.ok(schemas);
+//        }catch (Exception e) {
+//            logger.error("Error retrieving schemas for data source: {}", sourceId, e);
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+//        }
+//    }
+//
+//    /**
+//     * Get all tables for a given data source and schema
+//     */
+//    @GetMapping("/{sourceId}/tables")
+//    @Operation(summary = "Get all tables for a data source and schema", description = "Retrieve all tables for a specific data source and schema")
+//    @ApiResponses(value = {
+//        @ApiResponse(responseCode = "200", description = "Tables retrieved successfully"),
+//        @ApiResponse(responseCode = "404", description = "Data source not found")
+//    })
+//    public ResponseEntity<List<String>> getTables(
+//            @Parameter(description = "Data source unique identifier") @PathVariable @NotBlank String sourceId,
+//            @Parameter(description = "Schema name") @RequestParam @NotBlank String schema) {
+//
+//        logger.info("Retrieving tables for data source: {}, schema: {}", sourceId, schema);
+//
+//        try {
+//            List<String> tables = dataSourceService.getTables(sourceId, schema);
+//            return ResponseEntity.ok(tables);
+//        } catch (IllegalArgumentException e) {
+//            logger.warn("Data source not found when retrieving tables: {}", sourceId);
+//            return ResponseEntity.notFound().build();
+//        } catch (RuntimeException e) {
+//            logger.error("Error retrieving tables for data source: {}, schema: {}", sourceId, schema, e);
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+//        }
+//    }
+
+    /**
+     * Get complete data source information including all schemas and tables
+     */
+    @GetMapping("/{sourceId}/info")
+    @Operation(summary = "Get complete data source information", 
+              description = "Retrieve complete data source information including all schemas and their tables")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Data source information retrieved successfully",
+                    content = @Content(schema = @Schema(implementation = DataSourceInfoDto.class))),
+        @ApiResponse(responseCode = "404", description = "Data source not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<DataSourceInfoDto> getDatasourceInfo(
+            @Parameter(description = "Data source unique identifier") @PathVariable @NotBlank String sourceId) {
+        
+        logger.info("Retrieving complete info for data source: {}", sourceId);
+        
+        try {
+            DataSourceInfoDto info = dataSourceService.getDatasourceInfo(sourceId);
+            return ResponseEntity.ok(info);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Data source not found: {}", sourceId);
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            logger.error("Error retrieving data source info: {}", sourceId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Refresh data source information cache
+     */
+    @PostMapping("/{sourceId}/refresh-cache")
+    @Operation(summary = "Refresh data source cache", 
+              description = "Refresh cached data source information including schemas and tables")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Cache refreshed successfully"),
+        @ApiResponse(responseCode = "404", description = "Data source not found")
+    })
+    public ResponseEntity<Map<String, Object>> refreshDatasourceCache(
+            @Parameter(description = "Data source unique identifier") @PathVariable @NotBlank String sourceId) {
+        
+        logger.info("Refreshing cache for data source: {}", sourceId);
+        
+        try {
+            dataSourceService.refreshDatasourceInfoCache(sourceId);
+            
+            Map<String, Object> result = Map.of(
+                "success", true,
+                "message", "Cache refreshed successfully",
+                "sourceId", sourceId,
+                "timestamp", java.time.LocalDateTime.now()
+            );
+            
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Data source not found for cache refresh: {}", sourceId);
+            return ResponseEntity.notFound().build();
+        }
     }
 
 }

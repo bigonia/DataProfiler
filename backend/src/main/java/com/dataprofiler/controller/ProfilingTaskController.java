@@ -21,14 +21,16 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
-import java.util.Optional;
+import javax.validation.constraints.NotEmpty;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * REST Controller for profiling task operations
  * Provides endpoints for starting profiling tasks and checking their status
  */
 @RestController
-@RequestMapping("/profiling")
+@RequestMapping("/api/profiling")
 @Validated
 @Tag(name = "Profiling Tasks", description = "API for managing data profiling tasks")
 public class ProfilingTaskController {
@@ -51,16 +53,6 @@ public class ProfilingTaskController {
                     responseCode = "201",
                     description = "Profiling task created successfully",
                     content = @Content(schema = @Schema(implementation = ProfilingTask.class))
-            ),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "Invalid request parameters",
-                    content = @Content(schema = @Schema(implementation = String.class))
-            ),
-            @ApiResponse(
-                    responseCode = "500",
-                    description = "Internal server error",
-                    content = @Content(schema = @Schema(implementation = String.class))
             )
     })
     public ResponseEntity<?> startProfilingTask(
@@ -86,13 +78,31 @@ public class ProfilingTaskController {
         }
     }
 
+    @GetMapping("/profiling-tasks/list")
+    @Operation(
+            summary = "获取所有分析任务",
+            description = "获取所有分析任务"
+    )
+    public ResponseEntity<?> getAllProfilingTask() {
+
+        logger.info("获取所有分析任务请求");
+
+        try {
+            return ResponseEntity.ok(profilingService.getAllProfilingTasks());
+        } catch (Exception e) {
+            logger.error("获取所有分析任务失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("获取所有分析任务失败: " + e.getMessage());
+        }
+    }
+
     /**
      * delete profiling task
      */
     /**
      * 删除分析任务
      */
-    @DeleteMapping("/profiling-tasks/{taskId}")
+    @DeleteMapping("/profiling-tasks/{id}")
     @Operation(
             summary = "删除分析任务",
             description = "根据任务ID删除指定的分析任务"
@@ -107,35 +117,30 @@ public class ProfilingTaskController {
                     responseCode = "404",
                     description = "任务未找到",
                     content = @Content(schema = @Schema(implementation = String.class))
-            ),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "无效的任务ID",
-                    content = @Content(schema = @Schema(implementation = String.class))
             )
     })
     public ResponseEntity<?> deleteProfilingTask(
             @Parameter(description = "任务唯一标识", required = true)
-            @PathVariable @NotBlank String taskId) {
+            @PathVariable  Long id) {
 
-        logger.info("删除分析任务请求，任务ID: {}", taskId);
+        logger.info("删除分析任务请求，任务ID: {}", id);
 
         try {
-            profilingService.deleteTask(taskId);
-            logger.info("分析任务删除成功，任务ID: {}", taskId);
+            profilingService.deleteTask(id);
+            logger.info("分析任务删除成功，任务ID: {}", id);
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException e) {
-            logger.warn("无效的任务ID: {}", taskId);
+            logger.warn("无效的任务ID: {}", id);
             return ResponseEntity.badRequest().body("无效的任务ID: " + e.getMessage());
         } catch (Exception e) {
-            logger.error("删除分析任务失败，任务ID: {}", taskId, e);
+            logger.error("删除分析任务失败，任务ID: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("删除分析任务失败: " + e.getMessage());
         }
     }
 
 
-    @GetMapping("/task-status/{taskId}")
+    @GetMapping("/task-status/{id}")
     @Operation(
             summary = "Get task status",
             description = "Retrieves the current status and progress information of a profiling task"
@@ -145,26 +150,16 @@ public class ProfilingTaskController {
                     responseCode = "200",
                     description = "Task status retrieved successfully",
                     content = @Content(schema = @Schema(implementation = TaskStatusResponse.class))
-            ),
-            @ApiResponse(
-                    responseCode = "404",
-                    description = "Task not found",
-                    content = @Content(schema = @Schema(implementation = String.class))
-            ),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "Invalid task ID",
-                    content = @Content(schema = @Schema(implementation = String.class))
             )
     })
     public ResponseEntity<?> getTaskStatus(
             @Parameter(description = "Unique task identifier", required = true)
-            @PathVariable @NotBlank String taskId) {
+            @PathVariable Long id) {
 
-        logger.debug("Getting status for task: {}", taskId);
+        logger.debug("Getting status for task: {}", id);
 
         try {
-            ProfilingTask task = profilingService.getTask(taskId);
+            ProfilingTask task = profilingService.getTask(id);
 
             if (task != null) {
                 // Convert to DTO to avoid lazy loading issues
@@ -179,18 +174,35 @@ public class ProfilingTaskController {
                 response.setName(task.getName());
                 response.setDescription(task.getDescription());
                 
+                // Fill data source information
+                if (task.getDataSourceConfigs() != null && !task.getDataSourceConfigs().isEmpty()) {
+                    List<TaskStatusResponse.DataSourceInfo> dataSourceInfos = task.getDataSourceConfigs().stream()
+                            .map(ds -> {
+                                TaskStatusResponse.DataSourceInfo info = new TaskStatusResponse.DataSourceInfo();
+                                info.setId(ds.getId());
+                                info.setSourceId(ds.getSourceId());
+                                info.setName(ds.getName());
+                                info.setType(ds.getType());
+//                                info.setActive(ds.getActive());
+                                info.setCreatedAt(ds.getCreatedAt());
+                                return info;
+                            })
+                            .collect(Collectors.toList());
+                    response.setDataSources(dataSourceInfos);
+                }
+                
                 return ResponseEntity.ok(response);
             } else {
-                logger.warn("Task not found: {}", taskId);
+                logger.warn("Task not found: {}", id);
                 return ResponseEntity.notFound().build();
             }
 
         } catch (IllegalArgumentException e) {
-            logger.warn("Invalid task ID: {}", taskId);
+            logger.warn("Invalid task ID: {}", id);
             return ResponseEntity.badRequest().body("Invalid task ID: " + e.getMessage());
 
         } catch (Exception e) {
-            logger.error("Failed to get task status for taskId: {}", taskId, e);
+            logger.error("Failed to get task status for taskId: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Failed to get task status: " + e.getMessage());
         }

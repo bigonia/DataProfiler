@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.sql.*;
 import java.util.*;
+import java.util.LinkedHashMap;
 
 /**
  * PostgreSQL database profiler implementation
@@ -89,6 +90,64 @@ public class PostgreSqlProfiler implements IDatabaseProfiler {
         return "POSTGRESQL".equalsIgnoreCase(dataSourceType) || "POSTGRES".equalsIgnoreCase(dataSourceType);
     }
 
+    @Override
+    public Map<String, List<String>> getDatabaseMetadata(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting database metadata for PostgreSQL data source: {}", dataSourceConfig.getSourceId());
+        
+        Map<String, List<String>> schemasWithTables = new LinkedHashMap<>();
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            // Get all schemas first
+            List<String> schemas = getSchemasInternal(connection);
+            
+            // For each schema, get its tables
+            for (String schema : schemas) {
+                List<String> tables = getTablesForSchema(connection, schema);
+                schemasWithTables.put(schema, tables);
+            }
+            
+            logger.info("Retrieved {} schemas with total tables for PostgreSQL data source: {}", 
+                schemas.size(), dataSourceConfig.getSourceId());
+            return schemasWithTables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting database metadata for PostgreSQL data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve PostgreSQL database metadata", e);
+        }
+    }
+
+    @Override
+    public List<String> getSchemas(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting schemas for PostgreSQL data source: {}", dataSourceConfig.getSourceId());
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            List<String> schemas = getSchemasInternal(connection);
+            
+            logger.info("Retrieved {} schemas for PostgreSQL data source: {}", schemas.size(), dataSourceConfig.getSourceId());
+            return schemas;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting schemas for PostgreSQL data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve PostgreSQL schemas", e);
+        }
+    }
+
+    @Override
+    public List<String> getTables(DataSourceConfig dataSourceConfig, String schema) throws Exception {
+        logger.info("Getting tables for PostgreSQL schema: {} in data source: {}", schema, dataSourceConfig.getSourceId());
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            List<String> tables = getTablesForSchema(connection, schema);
+            
+            logger.info("Retrieved {} tables for PostgreSQL schema: {}", tables.size(), schema);
+            return tables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting tables for PostgreSQL schema: {} in data source: {}", schema, dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve PostgreSQL tables for schema: " + schema, e);
+        }
+    }
+
     /**
      * Create database connection
      */
@@ -114,6 +173,58 @@ public class PostgreSqlProfiler implements IDatabaseProfiler {
                            dataSource.getHost(), 
                            dataSource.getPort(), 
                            dataSource.getDatabaseName());
+    }
+
+    /**
+     * Get all schemas from the database
+     * 
+     * @param connection Database connection
+     * @return List of schema names
+     * @throws SQLException if query fails
+     */
+    private List<String> getSchemasInternal(Connection connection) throws SQLException {
+        List<String> schemas = new ArrayList<>();
+        
+        String sql = "SELECT schema_name FROM information_schema.schemata " +
+                    "WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+                    "AND schema_name NOT LIKE 'pg_temp_%' AND schema_name NOT LIKE 'pg_toast_temp_%' " +
+                    "ORDER BY schema_name";
+        
+        try (PreparedStatement stmt = connection.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                schemas.add(rs.getString("schema_name"));
+            }
+        }
+        
+        return schemas;
+    }
+
+    /**
+     * Get tables for a specific schema
+     * 
+     * @param connection Database connection
+     * @param schema Schema name
+     * @return List of table names
+     * @throws SQLException if query fails
+     */
+    private List<String> getTablesForSchema(Connection connection, String schema) throws SQLException {
+        List<String> tables = new ArrayList<>();
+        
+        String sql = "SELECT table_name FROM information_schema.tables " +
+                    "WHERE table_schema = ? AND table_type = 'BASE TABLE' " +
+                    "ORDER BY table_name";
+        
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+            stmt.setString(1, schema);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    tables.add(rs.getString("table_name"));
+                }
+            }
+        }
+        
+        return tables;
     }
 
     /**

@@ -16,6 +16,8 @@ import java.util.List;
 @Repository
 public interface DataSourceConfigRepository extends JpaRepository<DataSourceConfig, Long> {
 
+    void deleteById(Long id);
+
     // --- 自定义条件查询 (Custom Conditional Queries) ---
 
     /**
@@ -58,23 +60,5 @@ public interface DataSourceConfigRepository extends JpaRepository<DataSourceConf
      * @return true if exists, false otherwise
      */
     boolean existsBySourceId(String sourceId);
-
-    /**
-     * 根据数据源类型删除所有匹配的配置。
-     * <p>
-     * <b>注意:</b>
-     * <ul>
-     * <li>{@code @Modifying}: 必须添加此注解，以告知Spring Data JPA这是一个会修改数据库状态（DELETE/UPDATE/INSERT）的查询。</li>
-     * <li>{@code @Query}: 由于方法名删除（如 deleteByType）有时会与框架内置逻辑冲突或不够清晰，
-     * 使用@Query注解可以明确地定义操作。这里使用JPQL (Java Persistence Query Language)。</li>
-     * <li><b>事务性:</b> 调用此方法的Service层方法应添加 {@code @Transactional} 注解以确保事务的正确性。</li>
-     * </ul>
-     *
-     * @param type 需要删除的数据源类型。
-     * @return 被删除的记录数量。
-     */
-//    @Modifying
-//    @Query("DELETE FROM DataSourceConfig d WHERE d.type = :type")
-    int deleteByType(@Param("type") String type);
 
 }

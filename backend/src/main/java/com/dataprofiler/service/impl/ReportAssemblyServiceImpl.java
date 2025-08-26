@@ -131,10 +131,16 @@ public class ReportAssemblyServiceImpl implements ReportAssemblyService {
         tableReport.setName(tableData.getTableName());
         tableReport.setSchemaName(tableData.getSchemaName());
         tableReport.setRowCount(tableData.getRowCount());
-        
+
+        tableReport.setUseSample(tableData.isUseSample());
+
         // Process column data if available
         if (tableData.getColumns() != null && !tableData.getColumns().isEmpty()) {
             tableReport.setColumns(processColumnData(tableData.getColumns()));
+            
+            // Build sample rows from column sample values
+            Object sampleRows = buildSampleRowsFromColumns(tableData.getColumns());
+            tableReport.setSampleRows(sampleRows);
         }
         
         return tableReport;
@@ -197,6 +203,64 @@ public class ReportAssemblyServiceImpl implements ReportAssemblyService {
         columnReport.setMetrics(metrics);
         
         return columnReport;
+    }
+    
+    /**
+     * Build sample rows from column sample values
+     * Creates a header-rows structure with column names as headers and sample values as rows
+     */
+    private Object buildSampleRowsFromColumns(List<RawProfileDataDto.ColumnData> columns) {
+        if (columns == null || columns.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        try {
+            // Extract column names (headers)
+            List<String> headers = columns.stream()
+                    .map(RawProfileDataDto.ColumnData::getColumnName)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            
+            if (headers.isEmpty()) {
+                return new ArrayList<>();
+            }
+            
+            // Find the maximum number of sample values across all columns
+            int maxSampleCount = columns.stream()
+                    .mapToInt(col -> col.getSampleValues() != null ? col.getSampleValues().size() : 0)
+                    .max()
+                    .orElse(0);
+            
+            if (maxSampleCount == 0) {
+                return new ArrayList<>();
+            }
+            
+            // Build rows by combining sample values from each column
+            List<List<Object>> rows = new ArrayList<>();
+            for (int rowIndex = 0; rowIndex < Math.min(maxSampleCount, 5); rowIndex++) {
+                List<Object> row = new ArrayList<>();
+                for (RawProfileDataDto.ColumnData column : columns) {
+                    List<Object> sampleValues = column.getSampleValues();
+                    if (sampleValues != null && rowIndex < sampleValues.size()) {
+                        row.add(sampleValues.get(rowIndex));
+                    } else {
+                        row.add(null); // Fill missing values with null
+                    }
+                }
+                rows.add(row);
+            }
+            
+            // Return header-rows structure
+            Map<String, Object> sampleRowsMap = new HashMap<>();
+            sampleRowsMap.put("headers", headers);
+            sampleRowsMap.put("rows", rows);
+            
+            return sampleRowsMap;
+            
+        } catch (Exception e) {
+            logger.error("Error building sample rows from columns", e);
+            return new ArrayList<>();
+        }
     }
 
 

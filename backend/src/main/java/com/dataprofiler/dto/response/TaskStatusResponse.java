@@ -1,10 +1,12 @@
 package com.dataprofiler.dto.response;
 
+import com.dataprofiler.entity.DataSourceConfig;
 import com.dataprofiler.entity.ProfilingTask;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Response DTO for task status information
@@ -25,7 +27,6 @@ public class TaskStatusResponse {
     @Schema(description = "Task creation timestamp")
     private LocalDateTime createdAt;
 
-
     @Schema(description = "Task completion timestamp")
     private LocalDateTime completedAt;
 
@@ -40,6 +41,35 @@ public class TaskStatusResponse {
 
     @Schema(description = "Task description")
     private String description;
+
+    @Schema(description = "List of data sources associated with this task")
+    private List<DataSourceInfo> dataSources;
+
+    /**
+     * Data source information for task status response
+     */
+    @Data
+    @Schema(description = "Data source information")
+    public static class DataSourceInfo {
+        
+        @Schema(description = "Data source ID", example = "1")
+        private Long id;
+        
+        @Schema(description = "Data source unique identifier", example = "ds-pg-01")
+        private String sourceId;
+        
+        @Schema(description = "Data source name", example = "Production Database")
+        private String name;
+        
+        @Schema(description = "Data source type", example = "POSTGRESQL")
+        private DataSourceConfig.DataSourceType type;
+        
+//        @Schema(description = "Whether the data source is active", example = "true")
+//        private Boolean active;
+        
+        @Schema(description = "Data source creation timestamp")
+        private LocalDateTime createdAt;
+    }
 
     // Constructors
     public TaskStatusResponse() {}

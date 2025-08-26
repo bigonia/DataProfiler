@@ -50,52 +50,21 @@ public class StructuredReport {
     @Column(name = "generated_at", nullable = false)
     private LocalDateTime generatedAt;
 
-    /**
-     * Profiling execution start time
-     */
-    @Column(name = "profiling_start_time")
-    private LocalDateTime profilingStartTime;
-
-    /**
-     * Profiling execution end time
-     */
-    @Column(name = "profiling_end_time")
-    private LocalDateTime profilingEndTime;
 
     /**
      * Database profile information as JSON
      */
-    @Lob
+//    @Lob
     @Column(name = "database_profile_json")
     private String databaseProfileJson;
 
     /**
-     * Schema profiles information as JSON
-     */
-    @Lob
-    @Column(name = "schema_profiles_json")
-    private String schemaProfilesJson;
-
-    /**
      * Table profiles information as JSON
      */
-    @Lob
+//    @Lob
     @Column(name = "table_profiles_json")
     private String tableProfilesJson;
 
-    /**
-     * Summary statistics as JSON
-     */
-    @Lob
-    @Column(name = "summary_statistics_json")
-    private String summaryStatisticsJson;
-
-    /**
-     * Report metadata as JSON
-     */
-    @Lob
-    @Column(name = "metadata_json")
-    private String metadataJson;
 
     // Denormalized fields for efficient querying and summary operations
     @Column(name = "total_tables")
@@ -110,24 +79,4 @@ public class StructuredReport {
     @Column(name = "estimated_total_size_bytes")
     private Long estimatedTotalSizeBytes;
 
-    @Column(name = "profiling_duration_seconds")
-    private Long profilingDurationSeconds;
-
-    @Column(name = "created_at")
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }

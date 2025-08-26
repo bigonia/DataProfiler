@@ -24,21 +24,15 @@ public interface ProfilingTaskRepository extends JpaRepository<ProfilingTask, Lo
      */
     Optional<ProfilingTask> findByTaskId(String taskId);
 
-    /**
-     * Find tasks that contain the specified data source configuration
-     * @param dataSourceConfig the data source configuration
-     * @return list of tasks associated with the data source
-     */
-    @Query("SELECT t FROM ProfilingTask t JOIN t.dataSourceConfigs d WHERE d = :dataSourceConfig")
-    List<ProfilingTask> findByDataSourceConfigsContaining(@Param("dataSourceConfig") DataSourceConfig dataSourceConfig);
+
 
     /**
-     * Find tasks by data source ID
-     * @param dataSourceId the data source identifier
-     * @return list of tasks associated with the data source
+     * Find task by unique task ID
+     * @param id the unique task identifier
+     * @return Optional containing the task if found
      */
-    @Query("SELECT t FROM ProfilingTask t JOIN t.dataSourceConfigs d WHERE d.sourceId = :dataSourceId")
-    List<ProfilingTask> findByDataSourceId(@Param("dataSourceId") String dataSourceId);
+    Optional<ProfilingTask> findById(Long id);
+
 
     /**
      * Find tasks by status

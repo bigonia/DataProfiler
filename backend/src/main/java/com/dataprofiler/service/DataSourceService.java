@@ -1,5 +1,6 @@
 package com.dataprofiler.service;
 
+import com.dataprofiler.dto.response.DataSourceInfoDto;
 import com.dataprofiler.entity.DataSourceConfig;
 import com.dataprofiler.service.impl.DataSourceServiceImpl;
 import org.springframework.data.domain.Page;
@@ -62,7 +63,7 @@ public interface DataSourceService {
      *
      * @param sourceId the data source unique identifier to delete
      */
-    void deleteDataSource(String sourceId);
+    void deleteDataSource(Long sourceId);
 
     /**
      * Test connection to a data source
@@ -71,5 +72,42 @@ public interface DataSourceService {
      * @return true if connection is successful, false otherwise
      */
     boolean testConnection(DataSourceConfig dataSourceConfig);
+
+    /**
+     * Get all schemas for a given data source.
+     *
+     * @param sourceId the data source unique identifier
+     * @return list of schema names
+     * @throws IllegalArgumentException if data source not found
+     */
+    List<String> getSchemas(String sourceId);
+
+    /**
+     * Get all tables for a given data source and schema.
+     *
+     * @param sourceId the data source unique identifier
+     * @param schema   the schema name
+     * @return list of table names
+     * @throws IllegalArgumentException if data source not found
+     */
+    List<String> getTables(String sourceId, String schema);
+
+    /**
+     * Get complete data source information including all schemas and their tables.
+     * This method combines schema and table retrieval for better performance.
+     *
+     * @param sourceId the data source unique identifier
+     * @return data source information with schemas and tables
+     * @throws IllegalArgumentException if data source not found
+     */
+    DataSourceInfoDto getDatasourceInfo(String sourceId);
+
+    /**
+     * Refresh cached data source information.
+     * This method should be called after connection tests or when data structure changes.
+     *
+     * @param sourceId the data source unique identifier
+     */
+    void refreshDatasourceInfoCache(String sourceId);
 
 }

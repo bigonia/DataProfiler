@@ -1,11 +1,15 @@
 package com.dataprofiler.service.impl;
 
 import com.dataprofiler.dto.request.DetailedReportRequest;
-import com.dataprofiler.dto.request.ReportQueryDto;
+import com.dataprofiler.dto.request.ReportSummaryRequest;
+import com.dataprofiler.dto.response.ReportInfoDto;
 import com.dataprofiler.dto.response.ReportSummaryDto;
 import com.dataprofiler.dto.response.StructuredReportDto;
+import com.dataprofiler.entity.DataSourceConfig;
 import com.dataprofiler.entity.StructuredReport;
+import com.dataprofiler.repository.DataSourceConfigRepository;
 import com.dataprofiler.repository.StructuredReportRepository;
+import com.dataprofiler.service.ReportTransformService;
 import com.dataprofiler.service.StructuredReportService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -23,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +51,12 @@ public class StructuredReportServiceImpl implements StructuredReportService {
     private StructuredReportRepository structuredReportRepository;
 
     @Autowired
+    private DataSourceConfigRepository dataSourceConfigRepository;
+
+    @Autowired
+    private ReportTransformService reportTransformService;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     @Override
@@ -55,7 +67,6 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             logger.warn("No reports provided for saving");
             return;
         }
-
         try {
             List<StructuredReport> entities = new ArrayList<>();
 
@@ -87,109 +98,119 @@ public class StructuredReportServiceImpl implements StructuredReportService {
         }
     }
 
+
     @Override
     @Transactional(readOnly = true)
-    public List<ReportSummaryDto> getReportsSummary(String taskId) {
-        logger.debug("Retrieving reports summary for task: {}", taskId);
+    public List<ReportSummaryDto> getReportsSummary(ReportSummaryRequest request) {
+        logger.debug("Retrieving reports summary for data source IDs: {}", request.getDataSourceIds());
 
         try {
-            List<StructuredReport> reports = structuredReportRepository.findByTaskIdOrderByGeneratedAtDesc(taskId);
-            
-            List<ReportSummaryDto> summaries = reports.stream()
+            List<StructuredReport> reports = structuredReportRepository.findByTaskIdOrderByGeneratedAtDesc(request.getTaskId());
+
+            return reports.stream()
                     .map(this::convertToSummaryDto)
                     .filter(summary -> summary != null)
                     .collect(Collectors.toList());
 
-            logger.debug("Retrieved {} report summaries for task: {}", summaries.size(), taskId);
-            return summaries;
-
         } catch (Exception e) {
-            logger.error("Error retrieving reports summary for task: {}", taskId, e);
+            logger.error("Error retrieving reports summary for data source IDs: {}", request.getDataSourceIds(), e);
             throw new RuntimeException("Failed to retrieve reports summary: " + e.getMessage(), e);
         }
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<StructuredReportDto> getDetailedReport(String taskId, DetailedReportRequest request, String format) {
-        logger.debug("Retrieving detailed reports for task: {} with format: {}", taskId, format);
-
-        try {
-            List<StructuredReport> reports = structuredReportRepository.findByTaskIdOrderByGeneratedAtDesc(taskId);
-            
-            List<StructuredReportDto> detailedReports = reports.stream()
-                    .map(this::convertToDto)
-                    .filter(report -> report != null)
-                    .collect(Collectors.toList());
-
-            logger.debug("Retrieved {} detailed reports for task: {}", detailedReports.size(), taskId);
-            return detailedReports;
-
-        } catch (Exception e) {
-            logger.error("Error retrieving detailed reports for task: {}", taskId, e);
-            throw new RuntimeException("Failed to retrieve detailed reports: " + e.getMessage(), e);
-        }
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<StructuredReport> getReportsByTaskId(String taskId) {
-        logger.debug("Retrieving report entities for task: {}", taskId);
-
-        try {
-            return structuredReportRepository.findByTaskIdOrderByGeneratedAtDesc(taskId);
-        } catch (Exception e) {
-            logger.error("Error retrieving report entities for task: {}", taskId, e);
-            throw new RuntimeException("Failed to retrieve report entities: " + e.getMessage(), e);
-        }
-    }
-
-    @Transactional(readOnly = true)
-    public Page<StructuredReportDto> getDetailedReportWithPagination(ReportQueryDto queryDto) {
-        logger.debug("Retrieving detailed reports with query: taskId={}, dataSourceId={}, page={}, size={}", 
-                queryDto.getTaskId(), queryDto.getDataSourceId(), 
-                queryDto.getPage(), queryDto.getSize());
+    public Page<StructuredReportDto> getDetailedReport(DetailedReportRequest request) {
+        logger.debug("Retrieving detailed reports with request: {}", request);
 
         try {
             // Create pageable with sorting
             Sort sort = Sort.by(Sort.Direction.DESC, "generatedAt");
             Pageable pageable = PageRequest.of(
-                    queryDto.getPage() != null ? queryDto.getPage() : 0,
-                    queryDto.getSize() != null ? queryDto.getSize() : 20,
+                    request.getPage(),
+                    request.getPageSize(),
                     sort
             );
 
             Page<StructuredReport> reportPage;
 
-            // Apply filtering based on query parameters
-            if (queryDto.getTaskId() != null && queryDto.getDataSourceId() != null) {
-                // Filter by both task ID and data source ID
-                reportPage = structuredReportRepository.findByTaskIdAndDataSourceId(
-                        queryDto.getTaskId(), queryDto.getDataSourceId(), pageable);
-            } else if (queryDto.getTaskId() != null) {
-                // Filter by task ID only
-                reportPage = structuredReportRepository.findByTaskId(queryDto.getTaskId(), pageable);
-            } else if (queryDto.getDataSourceId() != null) {
-                // Filter by data source ID only
-                reportPage = structuredReportRepository.findByDataSourceId(queryDto.getDataSourceId(), pageable);
-            } else {
-                // No specific filters, get all reports
-                reportPage = structuredReportRepository.findAll(pageable);
-            }
+            // Query by data source IDs with pagination
+            reportPage = structuredReportRepository.findByTaskId(request.getTaskId(), pageable);
+
+            // Apply additional filtering for schemas and tables if needed
+            List<StructuredReport> filteredReports = reportPage.getContent().stream()
+                    .filter(report -> matchesFilterCriteria(report, request.getFilters()))
+                    .collect(Collectors.toList());
+
+            // Create new page with filtered results
+            reportPage = new PageImpl<>(filteredReports, pageable, filteredReports.size());
 
             // Convert entities to DTOs
             Page<StructuredReportDto> resultPage = reportPage.map(this::convertToDto);
 
-            logger.debug("Retrieved {} detailed reports (page {} of {})", 
-                    resultPage.getNumberOfElements(), 
-                    resultPage.getNumber() + 1, 
+            logger.debug("Retrieved {} detailed reports (page {} of {})",
+                    resultPage.getNumberOfElements(),
+                    resultPage.getNumber() + 1,
                     resultPage.getTotalPages());
 
             return resultPage;
 
         } catch (Exception e) {
-            logger.error("Error retrieving detailed reports with query: {}", queryDto, e);
+            logger.error("Error retrieving detailed reports with request: {}", request, e);
             throw new RuntimeException("Failed to retrieve detailed reports: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+      * Check if a report matches the filter criteria
+      */
+    private boolean matchesFilterCriteria(StructuredReport report, DetailedReportRequest.FilterCriteria filters) {
+
+        if(filters==null || filters.getDataSources()==null || filters.getDataSources().isEmpty()){
+            return true;
+        }
+
+        try {
+            // Convert entity to DTO to access structured data
+            StructuredReportDto reportDto = convertToDto(report);
+            if (reportDto == null || reportDto.getTables() == null) {
+                return false;
+            }
+            
+            // Get filter configuration for this data source
+            DetailedReportRequest.DataSourceScope dataSourceScope = filters.getDataSources().get(report.getDataSourceId());
+            if (dataSourceScope == null) {
+                return false;
+            }
+            
+            // If no specific schemas/tables are specified, include all tables from this data source
+            if (dataSourceScope.getSchemas() == null || dataSourceScope.getSchemas().isEmpty()) {
+                return true;
+            }
+            
+            // Check if any table in the report matches the schema/table filters
+            return reportDto.getTables().stream().anyMatch(table -> {
+                String schemaName = table.getSchemaName();
+                String tableName = table.getName();
+                
+                // Check if this table's schema is in the filter
+                List<String> allowedTables = dataSourceScope.getSchemas().get(schemaName);
+                if (allowedTables == null) {
+                    return false;
+                }
+                
+                // If no specific tables are specified for this schema, include all tables
+                if (allowedTables.isEmpty()) {
+                    return true;
+                }
+                
+                // Check if this specific table is in the filter
+                return allowedTables.contains(tableName);
+            });
+            
+        } catch (Exception e) {
+            logger.warn("Error checking filter criteria for report: {}", report.getTaskId(), e);
+            return false;
         }
     }
 
@@ -204,8 +225,6 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             entity.setTaskId(dto.getTaskId());
             entity.setDataSourceId(dto.getDataSourceId());
             entity.setGeneratedAt(dto.getGeneratedAt() != null ? dto.getGeneratedAt() : LocalDateTime.now());
-            entity.setProfilingStartTime(dto.getProfilingStartTime());
-            entity.setProfilingEndTime(dto.getProfilingEndTime());
             
             // Serialize complex objects to JSON for storage
             if (dto.getDatabase() != null) {
@@ -251,8 +270,14 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             dto.setTaskId(entity.getTaskId());
             dto.setDataSourceId(entity.getDataSourceId());
             dto.setGeneratedAt(entity.getGeneratedAt());
-            dto.setProfilingStartTime(entity.getProfilingStartTime());
-            dto.setProfilingEndTime(entity.getProfilingEndTime());
+
+            // Get data source type from DataSourceConfig
+            DataSourceConfig dataSourceConfig = dataSourceConfigRepository.findBySourceId(entity.getDataSourceId());
+            if (dataSourceConfig != null) {
+                dto.setDataSourceType(dataSourceConfig.getType());
+            } else {
+                logger.warn("DataSourceConfig not found for sourceId: {}", entity.getDataSourceId());
+            }
             
             // Deserialize JSON fields to objects
             if (entity.getDatabaseProfileJson() != null) {
@@ -279,6 +304,7 @@ public class StructuredReportServiceImpl implements StructuredReportService {
 
     /**
      * Convert StructuredReport entity to lightweight ReportSummaryDto
+     * Uses ReportTransformService to generate target format as specified in design document
      */
     private ReportSummaryDto convertToSummaryDto(StructuredReport entity) {
         try {
@@ -288,30 +314,32 @@ public class StructuredReportServiceImpl implements StructuredReportService {
                 return null;
             }
 
-            ReportSummaryDto summary = new ReportSummaryDto(
-                entity.getTaskId(),
-                entity.getDataSourceId(),
-                null, // dataSourceName not available in StructuredReportDto
-                fullReport.getDataSourceType(),
-                fullReport.getDatabase(),
-                fullReport.getTables()
-            );
+            // Get data source name from repository
+            String dataSourceName = null;
+            try {
+                DataSourceConfig dataSourceConfig = dataSourceConfigRepository.findBySourceId(entity.getDataSourceId());
+                if (dataSourceConfig != null) {
+                    dataSourceName = dataSourceConfig.getName();
+                }
+            } catch (Exception e) {
+                logger.warn("Could not retrieve data source name for ID: {}", entity.getDataSourceId(), e);
+            }
+
+            // Use transform service to convert to target format
+            ReportSummaryDto summary = reportTransformService.transformToTargetFormat(fullReport, dataSourceName);
+            if (summary == null) {
+                return null;
+            }
             
-            // Summary statistics from denormalized fields
+            // Set summary statistics from denormalized fields
             summary.setTotalTables(entity.getTotalTables());
             summary.setTotalColumns(entity.getTotalColumns());
             summary.setEstimatedTotalRows(entity.getEstimatedTotalRows());
             summary.setEstimatedTotalSizeBytes(entity.getEstimatedTotalSizeBytes());
-            summary.setProfilingDurationSeconds(entity.getProfilingDurationSeconds());
             
             // Calculate data size in human-readable format
             if (entity.getEstimatedTotalSizeBytes() != null) {
                 summary.setFormattedDataSize(formatBytes(entity.getEstimatedTotalSizeBytes()));
-            }
-            
-            // Calculate profiling duration in human-readable format
-            if (entity.getProfilingDurationSeconds() != null) {
-                summary.setFormattedDuration(formatDuration(entity.getProfilingDurationSeconds()));
             }
             
             return summary;
@@ -373,29 +401,14 @@ public class StructuredReportServiceImpl implements StructuredReportService {
         logger.info("Deleting reports for task: {}", taskId);
         
         try {
-            int deletedCount = structuredReportRepository.deleteByTaskId(taskId);
-            logger.info("Deleted {} reports for task: {}", deletedCount, taskId);
+            structuredReportRepository.deleteByTaskId(taskId);
+            logger.info("Successfully deleted reports for task: {}", taskId);
         } catch (Exception e) {
             logger.error("Error deleting reports for task: {}", taskId, e);
             throw new RuntimeException("Failed to delete reports: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Delete reports by data source ID (for cleanup operations)
-     */
-    @Transactional
-    public void deleteReportsByDataSourceId(String dataSourceId) {
-        logger.info("Deleting reports for data source: {}", dataSourceId);
-        
-        try {
-            int deletedCount = structuredReportRepository.deleteByDataSourceId(dataSourceId);
-            logger.info("Deleted {} reports for data source: {}", deletedCount, dataSourceId);
-        } catch (Exception e) {
-            logger.error("Error deleting reports for data source: {}", dataSourceId, e);
-            throw new RuntimeException("Failed to delete reports: " + e.getMessage(), e);
-        }
-    }
 
     /**
      * Get report count by task ID
@@ -410,16 +423,110 @@ public class StructuredReportServiceImpl implements StructuredReportService {
         }
     }
 
-    /**
-     * Get report count by data source ID
-     */
+    @Override
     @Transactional(readOnly = true)
-    public long getReportCountByDataSourceId(String dataSourceId) {
+    public List<StructuredReportDto> getAllDetailedReports(DetailedReportRequest request) {
+        logger.debug("Retrieving all detailed reports with request: {}", request);
+
         try {
-            return structuredReportRepository.countByDataSourceId(dataSourceId);
+            // Create sort for consistent ordering
+            Sort sort = Sort.by(Sort.Direction.DESC, "generatedAt");
+
+            // Query all reports by task ID without pagination
+            List<StructuredReport> reports = structuredReportRepository.findByTaskIdOrderByGeneratedAtDesc(request.getTaskId());
+
+            // Apply filtering for schemas and tables if needed
+            List<StructuredReport> filteredReports = reports.stream()
+                    .filter(report -> matchesFilterCriteria(report, request.getFilters()))
+                    .collect(Collectors.toList());
+
+            // Convert entities to DTOs
+            List<StructuredReportDto> resultList = filteredReports.stream()
+                    .map(this::convertToDto)
+                    .filter(dto -> dto != null)
+                    .collect(Collectors.toList());
+
+            logger.debug("Retrieved {} detailed reports for table-based pagination", resultList.size());
+
+            return resultList;
+
         } catch (Exception e) {
-            logger.error("Error counting reports for data source: {}", dataSourceId, e);
-            return 0;
+            logger.error("Error retrieving all detailed reports with request: {}", request, e);
+            throw new RuntimeException("Failed to retrieve all detailed reports: " + e.getMessage(), e);
         }
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ReportInfoDto> getReportInfoList(Integer page, Integer size) {
+        logger.debug("Retrieving report info list with page: {}, size: {}", page, size);
+
+        try {
+            // Create pageable with sorting by generation time (descending)
+            Sort sort = Sort.by(Sort.Direction.DESC, "generatedAt");
+            Pageable pageable = PageRequest.of(
+                    page != null ? page : 0,
+                    size != null ? size : 10,
+                    sort
+            );
+
+            // Get all reports with pagination
+            Page<StructuredReport> reportPage = structuredReportRepository.findAll(pageable);
+
+            // Convert to ReportInfoDto page
+            Page<ReportInfoDto> reportInfoPage = reportPage.map(this::convertToReportInfoDto);
+
+            logger.debug("Retrieved {} report info records (page {} of {})",
+                    reportInfoPage.getNumberOfElements(),
+                    reportInfoPage.getNumber() + 1,
+                    reportInfoPage.getTotalPages());
+
+            return reportInfoPage;
+
+        } catch (Exception e) {
+            logger.error("Error retrieving report info list with page: {}, size: {}", page, size, e);
+            throw new RuntimeException("Failed to retrieve report info list: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Convert StructuredReport entity to ReportInfoDto
+     */
+    private ReportInfoDto convertToReportInfoDto(StructuredReport entity) {
+        try {
+            ReportInfoDto dto = new ReportInfoDto();
+            dto.setId(entity.getId());
+            dto.setTaskId(entity.getTaskId());
+            dto.setDataSourceId(entity.getDataSourceId());
+            
+            // Get data source name from DataSourceConfig
+            try {
+                DataSourceConfig dataSourceConfig = dataSourceConfigRepository.findBySourceId(entity.getDataSourceId());
+                if (dataSourceConfig != null) {
+                    dto.setDataSourceName(dataSourceConfig.getName());
+                    dto.setDataSourceType(dataSourceConfig.getType());
+                } else {
+                    dto.setDataSourceName("Unknown");
+                    dto.setDataSourceType(null); // Set to null for unknown type
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to get data source info for sourceId: {}", entity.getDataSourceId(), e);
+                dto.setDataSourceName("Unknown");
+                dto.setDataSourceType(null); // Set to null for unknown type
+            }
+            
+            dto.setGeneratedAt(entity.getGeneratedAt());
+            dto.setTotalTables(entity.getTotalTables());
+            dto.setTotalColumns(entity.getTotalColumns());
+            dto.setEstimatedTotalRows(entity.getEstimatedTotalRows());
+            dto.setEstimatedTotalSizeBytes(entity.getEstimatedTotalSizeBytes());
+            
+            return dto;
+            
+        } catch (Exception e) {
+            logger.error("Error converting StructuredReport to ReportInfoDto for report ID: {}", entity.getId(), e);
+            throw new RuntimeException("Failed to convert report to info DTO: " + e.getMessage(), e);
+        }
+    }
+
 }

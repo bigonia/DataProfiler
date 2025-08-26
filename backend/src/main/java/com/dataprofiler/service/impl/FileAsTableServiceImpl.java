@@ -10,9 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.io.*;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,12 +32,91 @@ public class FileAsTableServiceImpl implements FileAsTableService {
     
     @Override
     public FileLoadResult loadExcelFileToDatabase(String fileId, String filePath) {
-        log.info("Starting to load Excel file to database: fileId={}, filePath={}", fileId, filePath);
+        log.info("Starting to load file to database: fileId={}, filePath={}", fileId, filePath);
         
         File file = new File(filePath);
         if (!file.exists()) {
             throw new RuntimeException("File not found: " + filePath);
         }
+        
+        String fileName = file.getName().toLowerCase();
+        
+        // Handle CSV files
+        if (fileName.endsWith(".csv")) {
+            return loadCsvFileToDatabase(fileId, file);
+        }
+        // Handle Excel files
+        else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+            return loadExcelFileToDatabase(fileId, file);
+        }
+        else {
+            throw new IllegalArgumentException("Unsupported file format. Only .csv, .xlsx and .xls files are supported.");
+        }
+    }
+    
+    /**
+     * Load CSV file to database
+     */
+    private FileLoadResult loadCsvFileToDatabase(String fileId, File file) {
+        log.info("Processing CSV file: {}", file.getName());
+        
+        List<FileLoadResult.LoadedTableInfo> loadedTables = new ArrayList<>();
+        
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String tableName = generateTableName(fileId, "data");
+            
+            // Read header line
+            String headerLine = reader.readLine();
+            if (headerLine == null || headerLine.trim().isEmpty()) {
+                throw new RuntimeException("CSV file is empty or has no header");
+            }
+            
+            // Parse column names
+            String[] headers = headerLine.split(",");
+            List<String> columnNames = new ArrayList<>();
+            for (String header : headers) {
+                String cleanHeader = sanitizeIdentifier(header.trim().replace("\"", ""));
+                columnNames.add(ensureUniqueColumnName(columnNames, cleanHeader));
+            }
+            
+            try (Connection conn = getSqliteConnection()) {
+                // Drop table if exists
+                dropTableIfExists(conn, tableName);
+                
+                // Create table
+                createTable(conn, tableName, columnNames);
+                
+                // Insert data
+                long rowCount = insertCsvData(conn, tableName, reader, columnNames);
+                
+                FileLoadResult.LoadedTableInfo tableInfo = new FileLoadResult.LoadedTableInfo(
+                    "data", tableName, columnNames.size(), rowCount, columnNames
+                );
+                loadedTables.add(tableInfo);
+                
+                log.info("Successfully loaded CSV as table '{}' with {} rows", tableName, rowCount);
+                
+            } catch (SQLException e) {
+                log.error("Database error while processing CSV file: {}", e.getMessage(), e);
+                throw new RuntimeException("Database error: " + e.getMessage(), e);
+            }
+            
+        } catch (IOException e) {
+            log.error("Failed to read CSV file: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to read CSV file: " + e.getMessage(), e);
+        }
+        
+        FileLoadResult result = new FileLoadResult(fileId, file.getName(), file.length(), loadedTables);
+        log.info("CSV file loading completed successfully");
+        
+        return result;
+    }
+    
+    /**
+     * Load Excel file to database
+     */
+    private FileLoadResult loadExcelFileToDatabase(String fileId, File file) {
+        log.info("Processing Excel file: {}", file.getName());
         
         List<FileLoadResult.LoadedTableInfo> loadedTables = new ArrayList<>();
         
@@ -78,7 +155,7 @@ public class FileAsTableServiceImpl implements FileAsTableService {
         }
         
         FileLoadResult result = new FileLoadResult(fileId, file.getName(), file.length(), loadedTables);
-        log.info("File loading completed: {} sheets loaded successfully", loadedTables.size());
+        log.info("Excel file loading completed: {} sheets loaded successfully", loadedTables.size());
         
         return result;
     }
@@ -93,8 +170,55 @@ public class FileAsTableServiceImpl implements FileAsTableService {
         } else if (fileName.endsWith(".xls")) {
             return new HSSFWorkbook(fis);
         } else {
-            throw new IllegalArgumentException("Unsupported file format. Only .xlsx and .xls files are supported.");
+            throw new IllegalArgumentException("Unsupported Excel file format. Only .xlsx and .xls files are supported.");
         }
+    }
+    
+    /**
+     * Insert CSV data into database table
+     */
+    private long insertCsvData(Connection conn, String tableName, BufferedReader reader, List<String> columnNames) throws SQLException, IOException {
+        String placeholders = String.join(",", columnNames.stream().map(c -> "?").toArray(String[]::new));
+        String insertSql = String.format("INSERT INTO %s (%s) VALUES (%s)", 
+                tableName, String.join(",", columnNames), placeholders);
+        
+        long rowCount = 0;
+        String line;
+        
+        try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) {
+                    continue; // Skip empty lines
+                }
+                
+                String[] values = line.split(",");
+                
+                // Handle cases where there are fewer values than columns
+                for (int i = 0; i < columnNames.size(); i++) {
+                    String value = "";
+                    if (i < values.length) {
+                        value = values[i].trim().replace("\"", ""); // Remove quotes
+                    }
+                    
+                    if (value.isEmpty()) {
+                        pstmt.setNull(i + 1, Types.VARCHAR);
+                    } else {
+                        pstmt.setString(i + 1, value);
+                    }
+                }
+                
+                pstmt.executeUpdate();
+                rowCount++;
+                
+                // Batch processing for better performance
+                if (rowCount % 1000 == 0) {
+                    log.debug("Processed {} rows", rowCount);
+                }
+            }
+        }
+        
+        log.debug("Total rows inserted: {}", rowCount);
+        return rowCount;
     }
     
     /**
@@ -155,10 +279,10 @@ public class FileAsTableServiceImpl implements FileAsTableService {
      * Sanitize identifier for SQL usage
      */
     private String sanitizeIdentifier(String identifier) {
-        return identifier.replaceAll("[^a-zA-Z0-9_]", "_")
-                        .replaceAll("_{2,}", "_")
-                        .replaceAll("^_|_$", "")
-                        .substring(0, Math.min(identifier.length(), MAX_COLUMN_NAME_LENGTH));
+        String sanitized = identifier.replaceAll("[^a-zA-Z0-9_]", "_")
+                                   .replaceAll("_{2,}", "_")
+                                   .replaceAll("^_|_$", "");
+        return sanitized.substring(0, Math.min(sanitized.length(), MAX_COLUMN_NAME_LENGTH));
     }
     
     /**
@@ -227,11 +351,12 @@ public class FileAsTableServiceImpl implements FileAsTableService {
         String url = "jdbc:sqlite:" + sqliteDatabasePath;
         Connection conn = DriverManager.getConnection(url);
         
-        // Enable foreign keys and set pragmas for better performance
+        // Enable foreign keys and set pragmas for better performance and prevent locking
         try (Statement stmt = conn.createStatement()) {
             stmt.execute("PRAGMA foreign_keys = ON");
             stmt.execute("PRAGMA journal_mode = WAL");
             stmt.execute("PRAGMA synchronous = NORMAL");
+            stmt.execute("PRAGMA busy_timeout = 30000"); // 30 seconds timeout to prevent database locking
         }
         
         return conn;

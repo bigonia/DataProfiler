@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.sql.*;
 import java.util.*;
+import java.util.LinkedHashMap;
 
 /**
  * Oracle database profiler implementation
@@ -89,6 +90,64 @@ public class OracleProfiler implements IDatabaseProfiler {
         return "ORACLE".equalsIgnoreCase(dataSourceType);
     }
 
+    @Override
+    public Map<String, List<String>> getDatabaseMetadata(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting database metadata for Oracle data source: {}", dataSourceConfig.getSourceId());
+        
+        Map<String, List<String>> schemasWithTables = new LinkedHashMap<>();
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            // Get all schemas first
+            List<String> schemas = getSchemasInternal(connection);
+            
+            // For each schema, get its tables
+            for (String schema : schemas) {
+                List<String> tables = getTablesForSchema(connection, schema);
+                schemasWithTables.put(schema, tables);
+            }
+            
+            logger.info("Retrieved {} schemas with total tables for Oracle data source: {}", 
+                schemas.size(), dataSourceConfig.getSourceId());
+            return schemasWithTables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting database metadata for Oracle data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve Oracle database metadata", e);
+        }
+    }
+
+    @Override
+    public List<String> getSchemas(DataSourceConfig dataSourceConfig) throws Exception {
+        logger.info("Getting schemas for Oracle data source: {}", dataSourceConfig.getSourceId());
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            List<String> schemas = getSchemasInternal(connection);
+            
+            logger.info("Retrieved {} schemas for Oracle data source: {}", schemas.size(), dataSourceConfig.getSourceId());
+            return schemas;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting schemas for Oracle data source: {}", dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve Oracle schemas", e);
+        }
+    }
+
+    @Override
+    public List<String> getTables(DataSourceConfig dataSourceConfig, String schema) throws Exception {
+        logger.info("Getting tables for Oracle schema: {} in data source: {}", schema, dataSourceConfig.getSourceId());
+        
+        try (Connection connection = createConnection(dataSourceConfig)) {
+            List<String> tables = getTablesForSchema(connection, schema);
+            
+            logger.info("Retrieved {} tables for Oracle schema: {}", tables.size(), schema);
+            return tables;
+            
+        } catch (SQLException e) {
+            logger.error("Error getting tables for Oracle schema: {} in data source: {}", schema, dataSourceConfig.getSourceId(), e);
+            throw new Exception("Failed to retrieve Oracle tables for schema: " + schema, e);
+        }
+    }
+
     /**
      * Create database connection
      */
@@ -122,6 +181,60 @@ public class OracleProfiler implements IDatabaseProfiler {
                                dataSource.getHost(), 
                                dataSource.getPort());
         }
+    }
+
+    /**
+     * Get all schemas from the database
+     * 
+     * @param connection Database connection
+     * @return List of schema names
+     * @throws SQLException if query fails
+     */
+    private List<String> getSchemasInternal(Connection connection) throws SQLException {
+        List<String> schemas = new ArrayList<>();
+        
+        String sql = "SELECT username FROM all_users " +
+                    "WHERE username NOT IN ('SYS', 'SYSTEM', 'DBSNMP', 'SYSMAN', 'OUTLN', 'MGMT_VIEW', " +
+                    "'DIP', 'ORACLE_OCM', 'APPQOSSYS', 'WMSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', " +
+                    "'XS$NULL', 'OJVMSYS', 'DVF', 'DVSYS', 'DBSFWUSER', 'REMOTE_SCHEDULER_AGENT', " +
+                    "'DBA', 'RESOURCE', 'CONNECT', 'PUBLIC') " +
+                    "ORDER BY username";
+        
+        try (PreparedStatement stmt = connection.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                schemas.add(rs.getString("username"));
+            }
+        }
+        
+        return schemas;
+    }
+
+    /**
+     * Get tables for a specific schema
+     * 
+     * @param connection Database connection
+     * @param schema Schema name
+     * @return List of table names
+     * @throws SQLException if query fails
+     */
+    private List<String> getTablesForSchema(Connection connection, String schema) throws SQLException {
+        List<String> tables = new ArrayList<>();
+        
+        String sql = "SELECT table_name FROM all_tables " +
+                    "WHERE owner = ? " +
+                    "ORDER BY table_name";
+        
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+            stmt.setString(1, schema.toUpperCase());
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    tables.add(rs.getString("table_name"));
+                }
+            }
+        }
+        
+        return tables;
     }
 
     /**

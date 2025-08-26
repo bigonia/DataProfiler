@@ -15,6 +15,7 @@ import com.dataprofiler.service.ProfilingService;
 import com.dataprofiler.service.ReportAssemblyService;
 import com.dataprofiler.service.StructuredReportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.swagger.v3.core.util.Json;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,9 +79,9 @@ public class ProfilingServiceImpl implements ProfilingService {
         try {
             // Create and save task with PENDING status
             ProfilingTask task = createProfilingTask(request);
+            logger.info("Created profiling task : {}", Json.pretty(task));
             profilingTaskRepository.save(task);
 
-            logger.info("Created profiling task with ID: {}", task.getTaskId());
 
             // Start async execution
             CompletableFuture<Void> asyncTask = executeTaskAsync(task.getTaskId());
@@ -105,9 +106,9 @@ public class ProfilingServiceImpl implements ProfilingService {
 
     @Override
     @Transactional
-    public ProfilingTask getTask(String taskId) {
-        logger.debug("Getting  task: {}", taskId);
-        Optional<ProfilingTask> taskOpt = profilingTaskRepository.findByTaskId(taskId);
+    public ProfilingTask getTask(Long id) {
+        logger.debug("Getting  task: {}", id);
+        Optional<ProfilingTask> taskOpt = profilingTaskRepository.findById(id);
         if (taskOpt.isPresent()) {
             return taskOpt.get();
         }
@@ -115,17 +116,9 @@ public class ProfilingServiceImpl implements ProfilingService {
     }
 
     @Override
-    public void deleteTask(String taskId) {
-        logger.info("Deleting task: {}", taskId);
-
-        Optional<ProfilingTask> taskOpt = profilingTaskRepository.findByTaskId(taskId);
-        if (taskOpt.isPresent()) {
-            profilingTaskRepository.delete(taskOpt.get());
-            logger.info("Successfully deleted task: {}", taskId);
-        } else {
-            logger.warn("Task not found for deletion: {}", taskId);
-            throw new IllegalArgumentException("Task not found: " + taskId);
-        }
+    public void deleteTask(Long id) {
+        logger.info("Deleting task: {}", id);
+        profilingTaskRepository.deleteById(id);
     }
 
     @Override
@@ -133,7 +126,7 @@ public class ProfilingServiceImpl implements ProfilingService {
         logger.debug("Finding tasks by data source ID: {}", dataSourceId);
 
         try {
-            return profilingTaskRepository.findByDataSourceId(dataSourceId);
+            return null;
         } catch (Exception e) {
             logger.error("Error finding tasks by data source ID: {}", dataSourceId, e);
             throw new RuntimeException("Failed to find tasks by data source ID", e);
@@ -326,7 +319,8 @@ public class ProfilingServiceImpl implements ProfilingService {
 
             // Special handling for FILE type data sources
             if (DataSourceConfig.DataSourceType.FILE.equals(dataSourceConfig.getType())) {
-                return processFileDataSource(dataSourceConfig, scope, taskId);
+//                return processFileDataSource(dataSourceConfig, scope, taskId);
+                dataSourceConfig.setType(DataSourceConfig.DataSourceType.MYSQL);
             }
 
             // Get appropriate profiler for database types
@@ -354,7 +348,7 @@ public class ProfilingServiceImpl implements ProfilingService {
         logger.info("Processing FILE data source: {} for task: {}", dataSourceConfig.getSourceId(), taskId);
         
         // Get file path from properties
-        String filePath = dataSourceConfig.getProperties().get("path");
+        String filePath = dataSourceConfig.getProperties().get("filePath");
         if (filePath == null || filePath.isEmpty()) {
             throw new IllegalArgumentException("File path not found in data source properties");
         }

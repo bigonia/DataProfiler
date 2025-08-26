@@ -42,6 +42,8 @@ public class RawProfileDataDto {
         private List<IndexData> indexes;
         private Map<String, Object> tableMetadata;
 
+        private boolean useSample;
+
         // Constructors
         public TableData() {}
 

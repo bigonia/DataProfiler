@@ -41,22 +41,6 @@ public interface StructuredReportRepository extends JpaRepository<StructuredRepo
      */
     List<StructuredReport> findByTaskIdOrderByGeneratedAtDesc(String taskId);
 
-    /**
-     * Find reports by data source ID with pagination support
-     * @param dataSourceId the data source identifier
-     * @param pageable pagination parameters
-     * @return page of reports for the specified data source
-     */
-    Page<StructuredReport> findByDataSourceId(String dataSourceId, Pageable pageable);
-
-    /**
-     * Find reports by both task ID and data source ID with pagination
-     * @param taskId the task identifier
-     * @param dataSourceId the data source identifier
-     * @param pageable pagination parameters
-     * @return page of reports matching both criteria
-     */
-    Page<StructuredReport> findByTaskIdAndDataSourceId(String taskId, String dataSourceId, Pageable pageable);
 
     /**
      * Count reports by task ID
@@ -65,31 +49,15 @@ public interface StructuredReportRepository extends JpaRepository<StructuredRepo
      */
     long countByTaskId(String taskId);
 
-    /**
-     * Count reports by data source ID
-     * @param dataSourceId the data source identifier
-     * @return number of reports for the data source
-     */
-    long countByDataSourceId(String dataSourceId);
+
 
     /**
      * Delete reports by task ID
      * @param taskId the task identifier
-     * @return number of deleted reports
      */
     @Modifying
-    @Query("DELETE FROM StructuredReport r WHERE r.taskId = :taskId")
-    int deleteByTaskId(@Param("taskId") String taskId);
-
-    /**
-     * Delete reports by data source ID
-     * @param dataSourceId the data source identifier
-     * @return number of deleted reports
-     */
-    @Modifying
-    @Query("DELETE FROM StructuredReport r WHERE r.dataSourceId = :dataSourceId")
-    int deleteByDataSourceId(@Param("dataSourceId") String dataSourceId);
-
+    @Query("DELETE FROM StructuredReport sr WHERE sr.taskId = :taskId")
+    void deleteByTaskId(@Param("taskId") String taskId);
 
 
 }

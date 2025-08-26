@@ -1,103 +1,81 @@
 package com.dataprofiler.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
 
 import javax.validation.constraints.Min;
-import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Request DTO for retrieving detailed reports
- * Supports batch querying with pagination
+ * Supports filtering by data sources, schemas, and tables with pagination
  */
+@Data
 @Schema(description = "Request for retrieving detailed profiling reports")
 public class DetailedReportRequest {
 
-    @NotNull(message = "Data sources configuration is required")
-    @NotEmpty(message = "At least one data source must be specified")
-    @Schema(description = "Map of data source ID to schema/table configuration")
-    private Map<String, ProfilingTaskRequest.DataSourceScope> dataSources;
+    @Schema(description = "taskId for reports")
+    private String taskId;
 
-    @Schema(description = "Pagination configuration")
-    private PaginationConfig pagination;
+    @Schema(description = "Filtering criteria for reports")
+    private FilterCriteria filters;
+
+    @Min(value = 0, message = "Page number must be non-negative")
+    @Schema(description = "Page number (0-based)", example = "0", defaultValue = "0")
+    private int page = 0;
+
+    @Min(value = 1, message = "Page size must be positive")
+    @Schema(description = "Number of items per page", example = "20", defaultValue = "20")
+    private int pageSize = 20;
+
+    @Schema(description = "Output format", example = "standard", allowableValues = {"standard", "compact"})
+    private String format = "standard";
 
     // Constructors
-    public DetailedReportRequest() {
-        this.pagination = new PaginationConfig();
-    }
+    public DetailedReportRequest() {}
 
-    public DetailedReportRequest(Map<String, ProfilingTaskRequest.DataSourceScope> dataSources) {
-        this.dataSources = dataSources;
-        this.pagination = new PaginationConfig();
-    }
-
-    // Getters and Setters
-    public Map<String, ProfilingTaskRequest.DataSourceScope> getDataSources() {
-        return dataSources;
-    }
-
-    public void setDataSources(Map<String, ProfilingTaskRequest.DataSourceScope> dataSources) {
-        this.dataSources = dataSources;
-    }
-
-    // Backward compatibility method
-    @Deprecated
-    public Map<String, ProfilingTaskRequest.DataSourceScope> getDatasources() {
-        return dataSources;
-    }
-
-    @Deprecated
-    public void setDatasources(Map<String, ProfilingTaskRequest.DataSourceScope> dataSources) {
-        this.dataSources = dataSources;
-    }
-
-    public PaginationConfig getPagination() {
-        return pagination;
-    }
-
-    public void setPagination(PaginationConfig pagination) {
-        this.pagination = pagination;
+    public DetailedReportRequest(FilterCriteria filters, int page, int pageSize) {
+        this.filters = filters;
+        this.page = page;
+        this.pageSize = pageSize;
     }
 
     /**
-     * Pagination configuration for detailed reports
+     * Filtering criteria for detailed reports
      */
-    @Schema(description = "Pagination configuration")
-    public static class PaginationConfig {
+    @Data
+    @Schema(description = "Filtering criteria for detailed reports")
+    public static class FilterCriteria {
         
-        @Min(value = 1, message = "Page number must be at least 1")
-        @Schema(description = "Page number (1-based)", example = "1", defaultValue = "1")
-        private int page = 1;
-
-        @Min(value = 1, message = "Page size must be at least 1")
-        @Schema(description = "Number of items per page", example = "10", defaultValue = "10")
-        private int pageSize = 10;
+        @Schema(description = "Map of data source ID to schema/table configuration",
+                example = "{\"ds-pg-01\": {\"schemas\": {\"public\": [\"orders\", \"customers\"], \"marketing\": []}}, \"ds-file-01\": {}}")
+        private Map<String, DataSourceScope> dataSources;
 
         // Constructors
-        public PaginationConfig() {}
+        public FilterCriteria() {}
 
-        public PaginationConfig(int page, int pageSize) {
-            this.page = page;
-            this.pageSize = pageSize;
+        public FilterCriteria(Map<String, DataSourceScope> dataSources) {
+            this.dataSources = dataSources;
         }
+    }
 
-        // Getters and Setters
-        public int getPage() {
-            return page;
-        }
+    /**
+     * Data source scope configuration
+     */
+    @Data
+    @Schema(description = "Data source scope configuration")
+    public static class DataSourceScope {
+        
+        @Schema(description = "Map of schema name to list of table names. Empty list means all tables in schema.")
+        private Map<String, List<String>> schemas;
 
-        public void setPage(int page) {
-            this.page = page;
-        }
+        // Constructors
+        public DataSourceScope() {}
 
-        public int getPageSize() {
-            return pageSize;
-        }
-
-        public void setPageSize(int pageSize) {
-            this.pageSize = pageSize;
+        public DataSourceScope(Map<String, List<String>> schemas) {
+            this.schemas = schemas;
         }
     }
 }

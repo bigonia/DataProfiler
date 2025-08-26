@@ -34,13 +34,6 @@ public class StructuredReportDto {
     @Schema(description = "Report generation timestamp")
     private LocalDateTime generatedAt;
 
-    @Schema(description = "Profiling start time")
-    private LocalDateTime profilingStartTime;
-
-    @Schema(description = "Profiling end time")
-    private LocalDateTime profilingEndTime;
-
-
     /**
      * Database information
      */
@@ -78,6 +71,7 @@ public class StructuredReportDto {
         @Schema(description = "Sample rows data (format depends on request parameter)")
         private Object sampleRows;
 
+        private boolean useSample;
     }
 
     /**

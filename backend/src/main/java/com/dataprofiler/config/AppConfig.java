@@ -46,6 +46,18 @@ public class AppConfig {
     @Value("${app.general.thread-pool.keep-alive-seconds:60}")
     private int generalKeepAliveSeconds;
 
+    @Value("${app.ai.thread-pool.core-size:2}")
+    private int aiCorePoolSize;
+
+    @Value("${app.ai.thread-pool.max-size:8}")
+    private int aiMaxPoolSize;
+
+    @Value("${app.ai.thread-pool.queue-capacity:25}")
+    private int aiQueueCapacity;
+
+    @Value("${app.ai.thread-pool.keep-alive-seconds:120}")
+    private int aiKeepAliveSeconds;
+
     /**
      * Thread pool executor for profiling tasks
      * This executor is specifically designed for CPU-intensive profiling operations
@@ -80,6 +92,25 @@ public class AppConfig {
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * AI service thread pool executor
+     * Optimized for AI analysis tasks with streaming capabilities
+     */
+    @Bean(name = "aiTaskExecutor")
+    public Executor aiTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(aiCorePoolSize);
+        executor.setMaxPoolSize(aiMaxPoolSize);
+        executor.setQueueCapacity(aiQueueCapacity);
+        executor.setKeepAliveSeconds(aiKeepAliveSeconds);
+        executor.setThreadNamePrefix("AI-Analysis-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(90);
         executor.initialize();
         return executor;
     }

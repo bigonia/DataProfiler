@@ -1,12 +1,17 @@
 package com.dataprofiler.service.impl;
 
+import com.dataprofiler.config.CacheConfig;
 import com.dataprofiler.dto.ConnectionTestResult;
+import com.dataprofiler.dto.response.DataSourceInfoDto;
 import com.dataprofiler.entity.DataSourceConfig;
+import com.dataprofiler.profiler.IDatabaseProfiler;
 import com.dataprofiler.repository.DataSourceConfigRepository;
 import com.dataprofiler.service.DataSourceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,10 +19,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -63,6 +65,9 @@ public class DataSourceServiceImpl implements DataSourceService {
 
     @Autowired
     private DataSourceConfigRepository dataSourceConfigRepository;
+
+    @Autowired
+    private List<IDatabaseProfiler> profilers;
 
     @Override
     public DataSourceConfig createDataSource(DataSourceConfig dataSourceConfig) {
@@ -127,14 +132,10 @@ public class DataSourceServiceImpl implements DataSourceService {
     }
 
     @Override
-    @Transactional
-    public void deleteDataSource(String sourceId) {
-        logger.info("Deleting data source with source ID: {}", sourceId);
-        if (!dataSourceConfigRepository.existsBySourceId(sourceId)) {
-            throw new IllegalArgumentException("Data source not found with source ID: " + sourceId);
-        }
-
-        dataSourceConfigRepository.deleteBySourceId(sourceId);
+//    @Transactional
+    public void deleteDataSource(Long id) {
+        logger.info("Deleting data source with source ID: {}", id);
+        dataSourceConfigRepository.deleteById(id);
     }
 
 
@@ -248,4 +249,177 @@ public class DataSourceServiceImpl implements DataSourceService {
         return url;
     }
 
+    @Override
+    @Cacheable(value = CacheConfig.DATASOURCE_SCHEMAS_CACHE, key = "#sourceId")
+    public List<String> getSchemas(String sourceId) {
+        logger.info("Getting schemas for data source: {}", sourceId);
+        DataSourceConfig config = getDataSourceBySourceId(sourceId);
+
+        String jdbcUrl = buildJdbcUrl(config);
+        String username = config.getUsername();
+        String password = config.getPassword();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+            List<String> schemas = new java.util.ArrayList<>();
+            java.sql.DatabaseMetaData metaData = connection.getMetaData();
+            try (java.sql.ResultSet rs = metaData.getSchemas()) {
+                while (rs.next()) {
+                    schemas.add(rs.getString("TABLE_SCHEM"));
+                }
+            }
+            return schemas;
+        } catch (java.sql.SQLException e) {
+            logger.error("Error getting schemas for data source: {}", sourceId, e);
+            throw new RuntimeException("Failed to retrieve schemas", e);
+        }
+    }
+
+    @Override
+    @Cacheable(value = CacheConfig.DATASOURCE_TABLES_CACHE, key = "#sourceId + '_' + #schema")
+    public List<String> getTables(String sourceId, String schema) {
+        logger.info("Getting tables for data source: {}, schema: {}", sourceId, schema);
+        DataSourceConfig config = getDataSourceBySourceId(sourceId);
+
+        String jdbcUrl = buildJdbcUrl(config);
+        String username = config.getUsername();
+        String password = config.getPassword();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+            List<String> tables = new java.util.ArrayList<>();
+            java.sql.DatabaseMetaData metaData = connection.getMetaData();
+            try (java.sql.ResultSet rs = metaData.getTables(null, schema, "%", new String[]{"TABLE"})) {
+                while (rs.next()) {
+                    tables.add(rs.getString("TABLE_NAME"));
+                }
+            }
+            return tables;
+        } catch (java.sql.SQLException e) {
+            logger.error("Error getting tables for data source: {}, schema: {}", sourceId, schema, e);
+            throw new RuntimeException("Failed to retrieve tables", e);
+        }
+    }
+
+    @Override
+    @Cacheable(value = CacheConfig.DATASOURCE_INFO_CACHE, key = "#sourceId")
+    public DataSourceInfoDto getDatasourceInfo(String sourceId) {
+        logger.info("Getting complete data source info for: {}", sourceId);
+        DataSourceConfig config = getDataSourceBySourceId(sourceId);
+
+        Map<String, List<String>> schemasWithTables = new LinkedHashMap<>();
+
+        try {
+            // Get appropriate profiler for the data source type
+            IDatabaseProfiler profiler = getProfiler(config.getType().name());
+
+            List<String> schemas = profiler.getSchemas(config);
+            for (String schema : schemas) {
+                List<String> tables = profiler.getTables(config, schema);
+                schemasWithTables.put(schema, tables);
+            }
+
+            // Use profiler to get database metadata
+//            Map<String, List<String>> schemasWithTables = profiler.getDatabaseMetadata(config);
+            
+            DataSourceInfoDto result = new DataSourceInfoDto(
+                config.getSourceId(),
+                config.getName(),
+                config.getType().name(),
+                schemasWithTables
+            );
+            
+            logger.info("Retrieved {} schemas with {} total tables for data source: {} using profiler", 
+                result.getSchemaCount(), result.getTotalTableCount(), sourceId);
+            
+            return result;
+            
+        } catch (Exception e) {
+            logger.error("Error getting data source info for: {} using profiler", sourceId, e);
+            
+            // Fallback to original JDBC method if profiler fails
+            logger.warn("Falling back to generic JDBC method for data source: {}", sourceId);
+            return getDatasourceInfoFallback(config);
+        }
+    }
+
+    @Override
+    @CacheEvict(value = {
+        CacheConfig.DATASOURCE_INFO_CACHE,
+        CacheConfig.DATASOURCE_SCHEMAS_CACHE,
+        CacheConfig.DATASOURCE_TABLES_CACHE
+    }, key = "#sourceId")
+    public void refreshDatasourceInfoCache(String sourceId) {
+        logger.info("Refreshing cache for data source: {}", sourceId);
+        // Cache eviction is handled by the annotation
+        // The next call to getDatasourceInfo will populate the cache with fresh data
+    }
+
+    /**
+     * Get appropriate profiler for data source type
+     * 
+     * @param dataSourceType The data source type
+     * @return IDatabaseProfiler instance
+     * @throws UnsupportedOperationException if no profiler found
+     */
+    private IDatabaseProfiler getProfiler(String dataSourceType) {
+        return profilers.stream()
+                .filter(p -> p.supports(dataSourceType))
+                .findFirst()
+                .orElseThrow(() -> new UnsupportedOperationException(
+                        "Unsupported data source type: " + dataSourceType));
+    }
+
+    /**
+     * Fallback method using generic JDBC metadata retrieval
+     * Used when profiler-based method fails
+     * 
+     * @param config DataSource configuration
+     * @return DataSourceInfoDto with metadata
+     */
+    private DataSourceInfoDto getDatasourceInfoFallback(DataSourceConfig config) {
+        logger.info("Using fallback JDBC method for data source: {}", config.getSourceId());
+        
+        String jdbcUrl = buildJdbcUrl(config);
+        String username = config.getUsername();
+        String password = config.getPassword();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+            Map<String, List<String>> schemasWithTables = new LinkedHashMap<>();
+            java.sql.DatabaseMetaData metaData = connection.getMetaData();
+            
+            // Get all schemas first
+            List<String> schemas = new ArrayList<>();
+            try (java.sql.ResultSet rs = metaData.getSchemas()) {
+                while (rs.next()) {
+                    schemas.add(rs.getString("TABLE_SCHEM"));
+                }
+            }
+            
+            // For each schema, get its tables
+            for (String schema : schemas) {
+                List<String> tables = new ArrayList<>();
+                try (java.sql.ResultSet rs = metaData.getTables(null, schema, "%", new String[]{"TABLE"})) {
+                    while (rs.next()) {
+                        tables.add(rs.getString("TABLE_NAME"));
+                    }
+                }
+                schemasWithTables.put(schema, tables);
+            }
+            
+            DataSourceInfoDto result = new DataSourceInfoDto(
+                config.getSourceId(),
+                config.getName(),
+                config.getType().name(),
+                schemasWithTables
+            );
+            
+            logger.info("Retrieved {} schemas with {} total tables for data source: {} using fallback method", 
+                result.getSchemaCount(), result.getTotalTableCount(), config.getSourceId());
+            
+            return result;
+            
+        } catch (java.sql.SQLException e) {
+            logger.error("Error getting data source info for: {} using fallback method", config.getSourceId(), e);
+            throw new RuntimeException("Failed to retrieve data source information using both profiler and fallback methods", e);
+        }
+    }
 }

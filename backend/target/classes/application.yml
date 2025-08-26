@@ -16,8 +16,20 @@ spring:
   application:
     name: Data Profiler
   
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-null-map-values: false
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+
   datasource:
-    jdbc-url: jdbc:h2:mem:testdb
+    jdbc-url: jdbc:mysql://localhost:3306/dbcrawler?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: root
     hikari:
       connection-timeout: 20000
       maximum-pool-size: 10
@@ -35,7 +47,7 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
+        dialect: org.hibernate.dialect.MySQL8Dialect
         format_sql: true
         use_sql_comments: false
         jdbc:
@@ -54,11 +66,15 @@ app:
   sqlite:
     database:
       path: data/core.db
-    
-  servlet:
-    multipart:
-      max-file-size: 50MB
-      max-request-size: 50MB
+
+# Dify AI Service Configuration
+dify:
+  api:
+    base-url: "http://172.16.11.60/v1" # Dify API base URL
+    key: "app-CZ0JlLf2nglBJKWxv6BEM6cd" # API Key from environment variable or default
+    timeout: 30000 # Request timeout in milliseconds
+    max-retries: 3 # Maximum retry attempts for failed requests
+
       
   jackson:
     default-property-inclusion: non_null
@@ -128,6 +144,11 @@ management:
       queue-capacity: 50
       keep-alive-seconds: 60
       thread-name-prefix: "General-"
+    ai:
+      core-size: 2
+      max-size: 8
+      queue-capacity: 25
+      keep-alive-seconds: 120
   
   report:
     # Maximum report size in MB
