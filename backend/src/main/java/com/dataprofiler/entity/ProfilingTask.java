@@ -63,15 +63,21 @@ public class ProfilingTask {
     
     @NotNull(message = "Task status is required")
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "status", nullable = false)
     private TaskStatus status = TaskStatus.PENDING;
 
     /**
      * 存储发起任务时的原始请求体JSON，用于追溯和调试。
      */
 //    @Lob
-    @Column(nullable = false)
+    @Column(name = "request_payload", columnDefinition = "TEXT")
     private String requestPayload;
+
+    @Column(name = "field_max_length")
+    private Integer fieldMaxLength = 128;
+
+    @Column(name = "sample_data_limit")
+    private Integer sampleDataLimit = 10;
 
     @Column(name = "info", length = 2000)
     private String info;

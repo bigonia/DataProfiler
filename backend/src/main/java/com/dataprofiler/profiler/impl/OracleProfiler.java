@@ -8,6 +8,7 @@ import com.dataprofiler.profiler.IDatabaseProfiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.sql.*;
 import java.util.*;
@@ -98,7 +99,7 @@ public class OracleProfiler implements IDatabaseProfiler {
         
         try (Connection connection = createConnection(dataSourceConfig)) {
             // Get all schemas first
-            List<String> schemas = getSchemasInternal(connection);
+            List<String> schemas = getSchemasInternal(connection, null);
             
             // For each schema, get its tables
             for (String schema : schemas) {
@@ -121,7 +122,7 @@ public class OracleProfiler implements IDatabaseProfiler {
         logger.info("Getting schemas for Oracle data source: {}", dataSourceConfig.getSourceId());
         
         try (Connection connection = createConnection(dataSourceConfig)) {
-            List<String> schemas = getSchemasInternal(connection);
+            List<String> schemas = getSchemasInternal(connection, dataSourceConfig.getDatabaseName());
             
             logger.info("Retrieved {} schemas for Oracle data source: {}", schemas.size(), dataSourceConfig.getSourceId());
             return schemas;
@@ -187,23 +188,35 @@ public class OracleProfiler implements IDatabaseProfiler {
      * Get all schemas from the database
      * 
      * @param connection Database connection
+     * @param databaseName Specific database name to filter (optional)
      * @return List of schema names
      * @throws SQLException if query fails
      */
-    private List<String> getSchemasInternal(Connection connection) throws SQLException {
+    private List<String> getSchemasInternal(Connection connection, String databaseName) throws SQLException {
         List<String> schemas = new ArrayList<>();
         
         String sql = "SELECT username FROM all_users " +
                     "WHERE username NOT IN ('SYS', 'SYSTEM', 'DBSNMP', 'SYSMAN', 'OUTLN', 'MGMT_VIEW', " +
                     "'DIP', 'ORACLE_OCM', 'APPQOSSYS', 'WMSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', " +
                     "'XS$NULL', 'OJVMSYS', 'DVF', 'DVSYS', 'DBSFWUSER', 'REMOTE_SCHEDULER_AGENT', " +
-                    "'DBA', 'RESOURCE', 'CONNECT', 'PUBLIC') " +
-                    "ORDER BY username";
+                    "'DBA', 'RESOURCE', 'CONNECT', 'PUBLIC') ";
         
-        try (PreparedStatement stmt = connection.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            while (rs.next()) {
-                schemas.add(rs.getString("username"));
+        // If databaseName is specified, filter by it (for Oracle, this would be schema filtering)
+        if (StringUtils.hasText(databaseName)) {
+            sql += "AND username = ? ";
+        }
+        
+        sql += "ORDER BY username";
+        
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+            if (StringUtils.hasText(databaseName)) {
+                stmt.setString(1, databaseName.toUpperCase());
+            }
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    schemas.add(rs.getString("username"));
+                }
             }
         }
         

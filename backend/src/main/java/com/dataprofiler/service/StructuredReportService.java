@@ -42,15 +42,6 @@ public interface StructuredReportService {
      */
     List<ReportSummaryDto> getReportsSummary(ReportSummaryRequest request);
 
-    /**
-     * Get detailed reports for a specific profiling task with filtering and pagination
-     * Supports complex querying with data source, schema, and table filtering
-     * Provides format conversion (standard/compact) and pagination
-     *
-     * @param request detailed report request with filtering criteria
-     * @return Page of detailed structured reports
-     */
-    Page<StructuredReportDto> getDetailedReport(DetailedReportRequest request);
 
     /**
      * Get all detailed reports for a specific profiling task with filtering (without pagination)

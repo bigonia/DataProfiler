@@ -7,6 +7,7 @@ import com.dataprofiler.profiler.IDatabaseProfiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.sql.*;
 import java.util.*;
@@ -97,7 +98,7 @@ public class SqlServerProfiler implements IDatabaseProfiler {
         
         try (Connection connection = createConnection(dataSourceConfig)) {
             // Get all schemas first
-            List<String> schemas = getSchemasInternal(connection);
+            List<String> schemas = getSchemasInternal(connection, dataSourceConfig.getDatabaseName());
             
             // For each schema, get its tables
             for (String schema : schemas) {
@@ -120,7 +121,7 @@ public class SqlServerProfiler implements IDatabaseProfiler {
         logger.info("Getting schemas for SQL Server data source: {}", dataSourceConfig.getSourceId());
         
         try (Connection connection = createConnection(dataSourceConfig)) {
-            List<String> schemas = getSchemasInternal(connection);
+            List<String> schemas = getSchemasInternal(connection, dataSourceConfig.getDatabaseName());
             
             logger.info("Retrieved {} schemas for SQL Server data source: {}", schemas.size(), dataSourceConfig.getSourceId());
             return schemas;
@@ -179,10 +180,11 @@ public class SqlServerProfiler implements IDatabaseProfiler {
      * Get all schemas from the database
      * 
      * @param connection Database connection
+     * @param databaseName Specific database name to filter (optional)
      * @return List of schema names
      * @throws SQLException if query fails
      */
-    private List<String> getSchemasInternal(Connection connection) throws SQLException {
+    private List<String> getSchemasInternal(Connection connection, String databaseName) throws SQLException {
         List<String> schemas = new ArrayList<>();
         
         String sql = "SELECT name FROM sys.schemas " +
@@ -197,7 +199,9 @@ public class SqlServerProfiler implements IDatabaseProfiler {
                 schemas.add(rs.getString("name"));
             }
         }
-        
+        if(StringUtils.hasText(databaseName) && schemas.contains(databaseName)){
+            return List.of(databaseName);
+        }
         return schemas;
     }
 
@@ -419,8 +423,8 @@ public class SqlServerProfiler implements IDatabaseProfiler {
             sql.append(", MAX([" + columnName + "]) as max_value");
         }
         
-        // Add length statistics for string types
-        if (isStringType(columnData.getDataType())) {
+        // Add length statistics for string types (excluding LOB types)
+        if (isStringType(columnData.getDataType()) && !isLobType(columnData.getDataType())) {
             sql.append(", AVG(LEN([" + columnName + "])) as avg_length");
             sql.append(", MAX(LEN([" + columnName + "])) as max_length");
             sql.append(", MIN(LEN([" + columnName + "])) as min_length");
@@ -483,6 +487,12 @@ public class SqlServerProfiler implements IDatabaseProfiler {
      * Get sample values for a column
      */
     private void getSampleValues(Connection connection, String tableName, RawProfileDataDto.ColumnData columnData, boolean useSampling) throws SQLException {
+        // Skip sample values for LOB types (TEXT, NTEXT, IMAGE) as they cannot be used with DISTINCT
+        if (isLobType(columnData.getDataType())) {
+            columnData.setSampleValues(new ArrayList<>());
+            return;
+        }
+        
         String sql = "SELECT DISTINCT TOP 10 [" + columnData.getColumnName() + "] FROM [" + tableName + "] " + 
                     "WHERE [" + columnData.getColumnName() + "] IS NOT NULL";
         

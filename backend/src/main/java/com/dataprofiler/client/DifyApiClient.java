@@ -2,7 +2,11 @@ package com.dataprofiler.client;
 
 import com.dataprofiler.dto.request.DifyWorkflowRequest;
 import com.dataprofiler.dto.response.DifyWorkflowResponse;
+import com.dataprofiler.dto.response.DifySseEvent;
+import com.dataprofiler.dto.response.DifyTextChunk;
+import com.dataprofiler.dto.response.DifyNodeData;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -152,6 +156,87 @@ public class DifyApiClient {
         } catch (Exception e) {
             logger.warn("Failed to parse SSE event: {}, error: {}", sseEvent, e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Parse complete SSE event with event type and data
+     * Handles the full "event: xxx\ndata: {json}" format from Dify streaming
+     * 
+     * @param rawSse Raw SSE event string with event type and data
+     * @return Parsed DifySseEvent or null if parsing fails
+     */
+    public DifySseEvent parseDifySseEvent(String rawSse) {
+        try {
+            if (rawSse == null || rawSse.trim().isEmpty()) {
+                return null;
+            }
+
+            String[] lines = rawSse.split("\n");
+            String eventType = null;
+            String dataJson = null;
+
+            // Parse SSE format: "event: xxx\ndata: {json}"
+            for (String line : lines) {
+                line = line.trim();
+                if (line.startsWith("event: ")) {
+                    eventType = line.substring(7).trim();
+                } else if (line.startsWith("data: ")) {
+                    dataJson = line.substring(6).trim();
+                }
+            }
+
+            // Skip empty data or keep-alive events
+            if (dataJson == null || dataJson.isEmpty() || "[DONE]".equals(dataJson)) {
+                return null;
+            }
+
+            // Parse data based on event type
+            Object parsedData = parseEventData(eventType, dataJson);
+            
+            return new DifySseEvent(eventType, parsedData, rawSse);
+            
+        } catch (Exception e) {
+            logger.warn("Failed to parse Dify SSE event: {}, error: {}", rawSse, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Parse event data based on event type
+     * 
+     * @param eventType The SSE event type
+     * @param dataJson The JSON data string
+     * @return Parsed data object
+     */
+    private Object parseEventData(String eventType, String dataJson) {
+        try {
+            if (eventType == null) {
+                // Default to generic parsing
+                return objectMapper.readValue(dataJson, Object.class);
+            }
+
+            switch (eventType) {
+                case "text_chunk":
+                    // Parse as text chunk data
+                    return objectMapper.readValue(dataJson, DifyTextChunk.class);
+                    
+                case "node_started":
+                case "node_finished":
+                    // Parse as node data
+                    return objectMapper.readValue(dataJson, DifyNodeData.class);
+                    
+                case "workflow_started":
+                case "workflow_finished":
+                case "error":
+                default:
+                    // Parse as generic object for other event types
+                    return objectMapper.readValue(dataJson, Object.class);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to parse event data for type {}: {}, error: {}", eventType, dataJson, e.getMessage());
+            // Fallback to raw string
+            return dataJson;
         }
     }
 

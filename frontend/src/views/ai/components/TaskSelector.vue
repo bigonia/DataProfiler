@@ -159,11 +159,8 @@ const formatTime = (timestamp: string | number): string => {
 }
 
 const formatDuration = (duration: number): string => {
-  if (duration < 1000) {
-    return `${duration}ms`
-  }
-  
-  const seconds = Math.floor(duration / 1000)
+  // Input is already in seconds, no need to convert from milliseconds
+  const seconds = Math.floor(duration)
   if (seconds < 60) {
     return `${seconds}秒`
   }

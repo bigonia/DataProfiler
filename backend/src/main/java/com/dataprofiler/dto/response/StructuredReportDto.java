@@ -1,6 +1,8 @@
 package com.dataprofiler.dto.response;
 
+import com.dataprofiler.config.SampleRowsDeserializer;
 import com.dataprofiler.entity.DataSourceConfig;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -68,8 +70,9 @@ public class StructuredReportDto {
         @Schema(description = "List of column profiling reports")
         private List<ColumnReport> columns;
 
-        @Schema(description = "Sample rows data (format depends on request parameter)")
-        private Object sampleRows;
+        @Schema(description = "Sample rows data as list of rows, each row is a list of column values")
+        @JsonDeserialize(using = SampleRowsDeserializer.class)
+        private List<List<Object>> sampleRows;
 
         private boolean useSample;
     }
@@ -95,6 +98,9 @@ public class StructuredReportDto {
 
         @Schema(description = "Detailed column metrics")
         private ColumnMetrics metrics;
+
+//        @Schema(description = "Sample values for this column", example = "[\"value1\", \"value2\", \"value3\"]")
+//        private List<String> sampleValues;
 
     }
 

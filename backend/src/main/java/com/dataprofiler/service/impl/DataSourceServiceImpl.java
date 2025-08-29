@@ -51,7 +51,7 @@ public class DataSourceServiceImpl implements DataSourceService {
         // Initialize URL templates
         URL_TEMPLATES.put(DataSourceConfig.DataSourceType.MYSQL, "jdbc:mysql://{host}:{port}/{database}?useSSL=false&serverTimezone=UTC");
         URL_TEMPLATES.put(DataSourceConfig.DataSourceType.POSTGRESQL, "jdbc:postgresql://{host}:{port}/{database}");
-        URL_TEMPLATES.put(DataSourceConfig.DataSourceType.SQLSERVER, "jdbc:sqlserver://{host}:{port};databaseName={database}");
+        URL_TEMPLATES.put(DataSourceConfig.DataSourceType.SQLSERVER, "jdbc:sqlserver://{host}:{port};databaseName={database};encrypt=false;trustServerCertificate=true");
         URL_TEMPLATES.put(DataSourceConfig.DataSourceType.ORACLE, "jdbc:oracle:thin:@{host}:{port}:{database}");
         URL_TEMPLATES.put(DataSourceConfig.DataSourceType.SQLITE, "jdbc:sqlite:{database}");
 
@@ -183,12 +183,24 @@ public class DataSourceServiceImpl implements DataSourceService {
                 Class.forName(driverClassName);
             }
 
-            // Test connection
-            try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+            // Test connection with additional properties for SQL Server
+            Connection connection;
+            if (dataSourceConfig.getType() == DataSourceConfig.DataSourceType.SQLSERVER) {
+                Properties props = new Properties();
+                props.setProperty("user", username);
+                props.setProperty("password", password);
+                props.setProperty("encrypt", "false");
+                props.setProperty("trustServerCertificate", "true");
+                connection = DriverManager.getConnection(jdbcUrl, props);
+            } else {
+                connection = DriverManager.getConnection(jdbcUrl, username, password);
+            }
+            
+            try (Connection conn = connection) {
                 // Execute test query to verify connection is working
                 String testQuery = TEST_QUERIES.get(dataSourceConfig.getType());
                 if (testQuery != null) {
-                    try (PreparedStatement stmt = connection.prepareStatement(testQuery);
+                    try (PreparedStatement stmt = conn.prepareStatement(testQuery);
                          ResultSet rs = stmt.executeQuery()) {
                         // Connection successful if we can execute the query
                         long duration = System.currentTimeMillis() - startTime;
@@ -259,7 +271,7 @@ public class DataSourceServiceImpl implements DataSourceService {
         String username = config.getUsername();
         String password = config.getPassword();
 
-        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+        try (Connection connection = createConnection(config, jdbcUrl, username, password)) {
             List<String> schemas = new java.util.ArrayList<>();
             java.sql.DatabaseMetaData metaData = connection.getMetaData();
             try (java.sql.ResultSet rs = metaData.getSchemas()) {
@@ -284,7 +296,7 @@ public class DataSourceServiceImpl implements DataSourceService {
         String username = config.getUsername();
         String password = config.getPassword();
 
-        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+        try (Connection connection = createConnection(config, jdbcUrl, username, password)) {
             List<String> tables = new java.util.ArrayList<>();
             java.sql.DatabaseMetaData metaData = connection.getMetaData();
             try (java.sql.ResultSet rs = metaData.getTables(null, schema, "%", new String[]{"TABLE"})) {
@@ -420,6 +432,22 @@ public class DataSourceServiceImpl implements DataSourceService {
         } catch (java.sql.SQLException e) {
             logger.error("Error getting data source info for: {} using fallback method", config.getSourceId(), e);
             throw new RuntimeException("Failed to retrieve data source information using both profiler and fallback methods", e);
+        }
+    }
+    
+    /**
+     * Create database connection with proper SSL configuration for SQL Server
+     */
+    private Connection createConnection(DataSourceConfig config, String jdbcUrl, String username, String password) throws java.sql.SQLException {
+        if (config.getType() == DataSourceConfig.DataSourceType.SQLSERVER) {
+            Properties props = new Properties();
+            props.setProperty("user", username);
+            props.setProperty("password", password);
+            props.setProperty("encrypt", "false");
+            props.setProperty("trustServerCertificate", "true");
+            return DriverManager.getConnection(jdbcUrl, props);
+        } else {
+            return DriverManager.getConnection(jdbcUrl, username, password);
         }
     }
 }

@@ -39,12 +39,13 @@
               @change="handleTypeFilter"
             >
               <el-option label="All Types" value="" />
-              <el-option label="MySQL" value="mysql" />
-              <el-option label="PostgreSQL" value="postgresql" />
-              <el-option label="Oracle" value="oracle" />
-              <el-option label="SQL Server" value="sqlserver" />
-              <el-option label="MongoDB" value="mongodb" />
-              <el-option label="Redis" value="redis" />
+              <el-option label="MySQL" value="MYSQL" />
+              <el-option label="PostgreSQL" value="POSTGRESQL" />
+              <el-option label="Oracle" value="ORACLE" />
+              <el-option label="SQL Server" value="SQLSERVER" />
+              <el-option label="MongoDB" value="MONGODB" />
+              <el-option label="Redis" value="REDIS" />
+              <el-option label="File" value="FILE" />
             </el-select>
           </div>
           
@@ -120,15 +121,15 @@
           <div class="connection-info">
             <div class="info-item">
               <span class="label">Host:</span>
-              <span class="value">{{ datasource.host }}:{{ datasource.port }}</span>
+              <span class="value">{{ datasource.host || datasource.properties?.host || 'N/A' }}{{ datasource.port || datasource.properties?.port ? ':' + (datasource.port || datasource.properties?.port) : '' }}</span>
             </div>
             <div class="info-item">
               <span class="label">Database:</span>
-              <span class="value">{{ datasource.database || 'N/A' }}</span>
+              <span class="value">{{ datasource.databaseName || datasource.database || datasource.properties?.database || 'N/A' }}</span>
             </div>
             <div class="info-item">
               <span class="label">Username:</span>
-              <span class="value">{{ datasource.username }}</span>
+              <span class="value">{{ datasource.username || datasource.properties?.username || 'N/A' }}</span>
             </div>
           </div>
           
@@ -195,13 +196,15 @@ import {
   Edit,
   Delete,
   Operation,
-  Coin,
   CircleCheck,
   Warning,
   Files,
   Monitor,
   Box,
-  Grid
+  Grid,
+  Coin,
+  Document,
+  Setting
 } from '@element-plus/icons-vue'
 import { useDataSourceStore } from '@/stores/datasource'
 import { formatDate, debounce } from '@/utils'
@@ -221,8 +224,10 @@ const filteredDataSources = computed(() => {
     const query = searchQuery.value.toLowerCase()
     sources = sources.filter(ds => 
       ds.name.toLowerCase().includes(query) ||
-      ds.host.toLowerCase().includes(query) ||
-      ds.database?.toLowerCase().includes(query)
+      ds.host?.toLowerCase().includes(query) ||
+      ds.database?.toLowerCase().includes(query) ||
+      ds.databaseName?.toLowerCase().includes(query) ||
+      ds.sourceId?.toLowerCase().includes(query)
     )
   }
   
@@ -235,50 +240,78 @@ const filteredDataSources = computed(() => {
 
 const getTypeIcon = (type: string) => {
   const icons: Record<string, any> = {
+    MYSQL: Coin,
     mysql: Coin,
-    postgresql: Coin,
-    oracle: Coin,
+    POSTGRESQL: Setting,
+    postgresql: Setting,
+    ORACLE: Document,
+    oracle: Document,
+    SQLSERVER: Monitor,
     sqlserver: Monitor,
+    MONGODB: Files,
     mongodb: Files,
-    redis: Box
+    REDIS: Box,
+    redis: Box,
+    FILE: Files
   }
   return icons[type] || Grid
 }
 
 const getTypeColor = (type: string) => {
   const colors: Record<string, string> = {
+    MYSQL: '#00758f',
     mysql: '#00758f',
+    POSTGRESQL: '#336791',
     postgresql: '#336791',
+    ORACLE: '#f80000',
     oracle: '#f80000',
+    SQLSERVER: '#cc2927',
     sqlserver: '#cc2927',
+    MONGODB: '#4db33d',
     mongodb: '#4db33d',
-    redis: '#dc382d'
+    REDIS: '#dc382d',
+    redis: '#dc382d',
+    FILE: '#67c23a'
   }
   return colors[type] || '#409eff'
 }
 
 const getTypeGradient = (type: string) => {
   const gradients: Record<string, string> = {
+    MYSQL: 'linear-gradient(135deg, #00758f 0%, #0099cc 100%)',
     mysql: 'linear-gradient(135deg, #00758f 0%, #0099cc 100%)',
+    POSTGRESQL: 'linear-gradient(135deg, #336791 0%, #4a90e2 100%)',
     postgresql: 'linear-gradient(135deg, #336791 0%, #4a90e2 100%)',
+    ORACLE: 'linear-gradient(135deg, #f80000 0%, #ff4444 100%)',
     oracle: 'linear-gradient(135deg, #f80000 0%, #ff4444 100%)',
+    SQLSERVER: 'linear-gradient(135deg, #cc2927 0%, #e74c3c 100%)',
     sqlserver: 'linear-gradient(135deg, #cc2927 0%, #e74c3c 100%)',
+    MONGODB: 'linear-gradient(135deg, #4db33d 0%, #27ae60 100%)',
     mongodb: 'linear-gradient(135deg, #4db33d 0%, #27ae60 100%)',
-    redis: 'linear-gradient(135deg, #dc382d 0%, #e74c3c 100%)'
+    REDIS: 'linear-gradient(135deg, #dc382d 0%, #e74c3c 100%)',
+    redis: 'linear-gradient(135deg, #dc382d 0%, #e74c3c 100%)',
+    FILE: 'linear-gradient(135deg, #67c23a 0%, #85ce61 100%)'
   }
   return gradients[type] || 'linear-gradient(135deg, #409eff 0%, #66b3ff 100%)'
 }
 
 const formatType = (type: string) => {
   const typeNames: Record<string, string> = {
+    MYSQL: 'MySQL',
     mysql: 'MySQL',
+    POSTGRESQL: 'PostgreSQL',
     postgresql: 'PostgreSQL',
+    ORACLE: 'Oracle',
     oracle: 'Oracle',
+    SQLSERVER: 'SQL Server',
     sqlserver: 'SQL Server',
+    MONGODB: 'MongoDB',
     mongodb: 'MongoDB',
-    redis: 'Redis'
+    REDIS: 'Redis',
+    redis: 'Redis',
+    FILE: 'File'
   }
-  return typeNames[type] || type.toUpperCase()
+  return typeNames[type] || type
 }
 
 const getConnectionStatus = (id: string) => {

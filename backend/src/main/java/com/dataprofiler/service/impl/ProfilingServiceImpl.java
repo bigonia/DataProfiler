@@ -141,6 +141,10 @@ public class ProfilingServiceImpl implements ProfilingService {
         task.setTaskId(UUID.randomUUID().toString());
         task.setStatus(ProfilingTask.TaskStatus.PENDING);
         task.setRequestPayload(objectMapper.writeValueAsString(request));
+        
+        // Set configuration parameters with default values if not provided
+        task.setFieldMaxLength(request.getFieldMaxLength() != null ? request.getFieldMaxLength() : 128);
+        task.setSampleDataLimit(request.getSampleDataLimit() != null ? request.getSampleDataLimit() : 10);
 
         // Set data source configurations for the task
         if (request.getDatasources() != null && !request.getDatasources().isEmpty()) {

@@ -5,6 +5,9 @@ import com.dataprofiler.dto.request.AnalysisRequest;
 import com.dataprofiler.dto.request.DifyWorkflowRequest;
 import com.dataprofiler.dto.request.ReportSummaryRequest;
 import com.dataprofiler.dto.response.DifyWorkflowResponse;
+import com.dataprofiler.dto.response.DifySseEvent;
+import com.dataprofiler.dto.response.DifyTextChunk;
+import com.dataprofiler.dto.response.DifyNodeData;
 import com.dataprofiler.entity.DataSourceConfig;
 import com.dataprofiler.service.AIService;
 import com.dataprofiler.service.DataSourceService;
@@ -125,15 +128,21 @@ public class AIServiceImpl implements AIService {
                 .subscribe(
                         sseEvent -> {
                             try {
-                                // Parse and forward SSE events
-                                DifyWorkflowResponse response = difyApiClient.parseSseEvent(sseEvent);
-                                if (response != null) {
-                                    forwardDifyResponse(emitter, response);
+                                // Parse SSE event with new enhanced parser
+                                DifySseEvent parsedEvent = difyApiClient.parseDifySseEvent(sseEvent);
+                                if (parsedEvent != null) {
+                                    forwardDifySseEvent(emitter, parsedEvent);
                                 } else {
-                                    // Forward raw event if parsing fails
-                                    emitter.send(SseEmitter.event()
-                                            .name("data")
-                                            .data(sseEvent));
+                                    // Fallback to legacy parsing for compatibility
+                                    DifyWorkflowResponse response = difyApiClient.parseSseEvent(sseEvent);
+                                    if (response != null) {
+                                        forwardDifyResponse(emitter, response);
+                                    } else {
+                                        // Forward raw event if both parsing methods fail
+                                        emitter.send(SseEmitter.event()
+                                                .name("data")
+                                                .data(sseEvent));
+                                    }
                                 }
                             } catch (IOException e) {
                                 logger.error("Failed to forward SSE event: {}", e.getMessage());
@@ -165,7 +174,119 @@ public class AIServiceImpl implements AIService {
     }
 
     /**
-     * Forward Dify response to SSE client
+     * Forward enhanced Dify SSE event to client with proper typing
+     */
+    private void forwardDifySseEvent(SseEmitter emitter, DifySseEvent sseEvent) throws IOException {
+        String eventName = "data";
+        Object eventData = sseEvent.getData();
+        
+        // Handle different event types with enhanced data structures
+        if (StringUtils.hasText(sseEvent.getEvent())) {
+            switch (sseEvent.getEvent()) {
+                case "workflow_started":
+                    eventName = "started";
+                    eventData = "Workflow started";
+                    break;
+                    
+                case "workflow_finished":
+                    eventName = "finished";
+                    eventData = sseEvent.getData();
+                    break;
+                    
+                case "node_started":
+                    eventName = "node_update";
+                    if (sseEvent.getData() instanceof DifyNodeData) {
+                        DifyNodeData nodeData = (DifyNodeData) sseEvent.getData();
+                        Map<String, Object> progressData = new HashMap<>();
+                        progressData.put("status", "running");
+                        progressData.put("nodeId", nodeData.getId());
+                        progressData.put("nodeTitle", nodeData.getTitle());
+                        progressData.put("nodeType", nodeData.getNodeType());
+                        progressData.put("index", nodeData.getIndex());
+                        progressData.put("createdAt", nodeData.getCreatedAt());
+                        eventData = progressData;
+                    }
+                    break;
+                    
+                case "node_finished":
+                    eventName = "node_update";
+                    if (sseEvent.getData() instanceof DifyNodeData) {
+                        DifyNodeData nodeData = (DifyNodeData) sseEvent.getData();
+                        Map<String, Object> progressData = new HashMap<>();
+                        progressData.put("status", "succeeded");
+                        progressData.put("nodeId", nodeData.getId());
+                        progressData.put("nodeTitle", nodeData.getTitle());
+                        progressData.put("nodeType", nodeData.getNodeType());
+                        progressData.put("elapsedTime", nodeData.getElapsedTime());
+                        progressData.put("index", nodeData.getIndex());
+                        
+                        // Extract execution metadata if available
+                        if (nodeData.getExecutionMetadata() != null) {
+                            progressData.put("executionMetadata", nodeData.getExecutionMetadata());
+                        }
+                        
+                        // Extract process data for additional metrics
+                        if (nodeData.getProcessData() != null) {
+                            Map<String, Object> processData = nodeData.getProcessData();
+                            if (processData.containsKey("usage")) {
+                                progressData.put("usage", processData.get("usage"));
+                            }
+                        }
+                        
+                        progressData.put("outputs", nodeData.getOutputs());
+                        progressData.put("error", nodeData.getError());
+                        eventData = progressData;
+                    }
+                    break;
+                    
+                case "text_chunk":
+                    eventName = "chunk";
+                    if (sseEvent.getData() instanceof DifyTextChunk) {
+                        DifyTextChunk textChunk = (DifyTextChunk) sseEvent.getData();
+                        Map<String, Object> chunkData = new HashMap<>();
+                        chunkData.put("text", textChunk.getText());
+                        chunkData.put("index", textChunk.getIndex());
+                        chunkData.put("delta", textChunk.getDelta());
+                        chunkData.put("finishReason", textChunk.getFinishReason());
+                        eventData = chunkData;
+                        logger.debug("Processed text_chunk with text: {}", textChunk.getText());
+                    } else {
+                        // Fallback: try to extract text from raw data
+                        logger.warn("text_chunk data is not DifyTextChunk instance: {}", sseEvent.getData());
+                        if (sseEvent.getData() instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> rawData = (Map<String, Object>) sseEvent.getData();
+                            String text = (String) rawData.get("text");
+                            if (text != null) {
+                                Map<String, Object> chunkData = new HashMap<>();
+                                chunkData.put("text", text);
+                                chunkData.put("delta", text);
+                                eventData = chunkData;
+                                logger.debug("Fallback processed text_chunk with text: {}", text);
+                            }
+                        }
+                    }
+                    break;
+                    
+                case "error":
+                    eventName = "error";
+                    eventData = sseEvent.getData();
+                    break;
+                    
+                default:
+                    eventName = "data";
+                    eventData = sseEvent.getData();
+            }
+        }
+
+        // Send event to client
+        emitter.send(SseEmitter.event()
+                .name(eventName)
+                .data(eventData != null ? eventData : ""));
+    }
+
+    /**
+     * Forward Dify response to SSE client (legacy method for compatibility)
      */
     private void forwardDifyResponse(SseEmitter emitter, DifyWorkflowResponse response) throws IOException {
         String eventName = "data";
@@ -189,7 +310,13 @@ public class AIServiceImpl implements AIService {
                     break;
                 case "text_chunk":
                     eventName = "chunk";
-                    eventData = response.getAnswer();
+                    if (response.getData() instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> dataMap = (Map<String, Object>) response.getData();
+                        eventData = dataMap.get("text");
+                    } else {
+                        eventData = response.getAnswer();
+                    }
                     break;
                 default:
                     eventName = "data";

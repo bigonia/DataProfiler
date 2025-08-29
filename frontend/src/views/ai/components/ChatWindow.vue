@@ -1,82 +1,100 @@
 <template>
   <div class="chat-window">
-    <el-card class="chat-container" shadow="hover">
-      <template #header>
-        <div class="chat-header">
-          <div class="header-title">
-            <el-icon><ChatDotRound /></el-icon>
-            <span>AI智能分析对话</span>
-          </div>
-          <div class="header-actions">
-            <el-button
-              v-if="messages.length > 0"
-              type="text"
-              size="small"
-              @click="handleClearMessages"
-            >
-              <el-icon><Delete /></el-icon>
-              清空对话
-            </el-button>
-          </div>
+    <!-- Chat Header -->
+    <div class="chat-header">
+      <div class="header-left">
+        <div class="chat-icon">
+          <el-icon><ChatDotRound /></el-icon>
         </div>
-      </template>
-      
-      <!-- Messages Area -->
-      <div class="messages-area" ref="messagesAreaRef">
-        <!-- Empty State -->
-        <div v-if="messages.length === 0" class="empty-state">
-          <el-empty :description="emptyMessage" :image-size="120">
-            <template #image>
-              <el-icon class="empty-icon"><ChatDotRound /></el-icon>
-            </template>
-          </el-empty>
+        <div class="header-info">
+          <h3 class="chat-title">AI智能分析</h3>
+          <p class="chat-subtitle">基于数据剖析的智能问答助手</p>
         </div>
-        
-        <!-- Messages List -->
-        <div v-else class="messages-list">
-          <MessageBubble
-            v-for="message in messages"
-            :key="message.id"
-            :message="message"
-            class="message-item"
+      </div>
+      <div class="header-actions">
+        <el-tooltip content="清空对话" placement="bottom">
+          <el-button
+            type="text"
+            :icon="Delete"
+            :disabled="messages.length === 0"
+            @click="handleClearMessages"
+            class="clear-btn"
           />
-          
-          <!-- Streaming Indicator -->
-          <div v-if="isStreaming" class="streaming-indicator">
-            <div class="streaming-bubble">
-              <div class="streaming-dots">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <span class="streaming-text">AI正在思考中...</span>
-            </div>
+        </el-tooltip>
+      </div>
+    </div>
+
+    <!-- Messages Container -->
+    <div class="messages-container" ref="messagesContainerRef">
+      <!-- Empty State -->
+      <div v-if="messages.length === 0" class="empty-state">
+        <div class="empty-icon">
+          <el-icon><ChatDotRound /></el-icon>
+        </div>
+        <h4 class="empty-title">开始智能对话</h4>
+        <p class="empty-description">{{ emptyMessage }}</p>
+        <div class="suggestion-cards">
+          <div 
+            v-for="suggestion in suggestions" 
+            :key="suggestion.text"
+            class="suggestion-card"
+            @click="$emit('send-suggestion', suggestion.text)"
+          >
+            <el-icon class="suggestion-icon">
+              <component :is="suggestion.icon" />
+            </el-icon>
+            <span class="suggestion-text">{{ suggestion.text }}</span>
           </div>
         </div>
       </div>
-      
-      <!-- Scroll to Bottom Button -->
-      <transition name="fade">
-        <el-button
-          v-if="showScrollButton"
-          class="scroll-button"
-          type="primary"
-          :icon="ArrowDown"
-          circle
-          size="small"
-          @click="scrollToBottom"
+
+      <!-- Messages List -->
+      <div v-else class="messages-list">
+        <EnhancedMessageBubble
+          v-for="message in messages"
+          :key="message.id"
+          :message="message"
+          :is-streaming="isStreaming && message.isStreaming"
+          @copy-message="handleCopyMessage"
+          @regenerate="handleRegenerateMessage"
+          @like-message="handleLikeMessage"
+          @dislike-message="handleDislikeMessage"
+          @tts="handleTTS"
+          @add-annotation="handleAddAnnotation"
         />
-      </transition>
-    </el-card>
+        
+
+      </div>
+    </div>
+
+    <!-- Scroll to Bottom Button -->
+    <transition name="fade">
+      <el-button
+        v-if="showScrollButton"
+        class="scroll-btn"
+        type="primary"
+        :icon="ArrowDown"
+        circle
+        @click="scrollToBottom"
+      />
+    </transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { ChatDotRound, Delete, ArrowDown } from '@element-plus/icons-vue'
+import { ref, nextTick, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
+import { 
+  ChatDotRound, 
+  Delete, 
+  ArrowDown, 
+  DataAnalysis, 
+  TrendCharts, 
+  Warning 
+} from '@element-plus/icons-vue'
 import type { Message } from '@/types'
 import MessageBubble from './MessageBubble.vue'
+import EnhancedMessageBubble from '@/components/chat/EnhancedMessageBubble.vue'
 
 // Props
 interface Props {
@@ -93,30 +111,38 @@ const props = withDefaults(defineProps<Props>(), {
 // Emits
 interface Emits {
   (e: 'clear-messages'): void
+  (e: 'send-suggestion', suggestion: string): void
+  (e: 'copy-message', content: string): void
+  (e: 'regenerate-message', messageId: string): void
 }
 
 const emit = defineEmits<Emits>()
 
 // Refs
-const messagesAreaRef = ref<HTMLElement>()
+const messagesContainerRef = ref<HTMLElement>()
 const showScrollButton = ref(false)
+
+// Computed
+const suggestions = computed(() => [
+  { icon: DataAnalysis, text: '分析数据质量情况' },
+  { icon: TrendCharts, text: '查看数据分布特征' },
+  { icon: Warning, text: '识别异常数据' }
+])
 
 // Methods
 const scrollToBottom = (smooth = true) => {
-  if (!messagesAreaRef.value) return
+  if (!messagesContainerRef.value) return
   
-  const scrollOptions: ScrollToOptions = {
-    top: messagesAreaRef.value.scrollHeight,
+  messagesContainerRef.value.scrollTo({
+    top: messagesContainerRef.value.scrollHeight,
     behavior: smooth ? 'smooth' : 'auto'
-  }
-  
-  messagesAreaRef.value.scrollTo(scrollOptions)
+  })
 }
 
 const checkScrollPosition = () => {
-  if (!messagesAreaRef.value) return
+  if (!messagesContainerRef.value) return
   
-  const { scrollTop, scrollHeight, clientHeight } = messagesAreaRef.value
+  const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.value
   const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
   
   showScrollButton.value = !isNearBottom && props.messages.length > 0
@@ -134,9 +160,18 @@ const handleClearMessages = async () => {
       }
     )
     emit('clear-messages')
+    ElMessage.success('对话记录已清空')
   } catch {
     // User cancelled
   }
+}
+
+const handleCopyMessage = (content: string) => {
+  emit('copy-message', content)
+}
+
+const handleRegenerateMessage = (messageId: string) => {
+  emit('regenerate-message', messageId)
 }
 
 // Auto scroll to bottom when new messages arrive
@@ -145,14 +180,13 @@ watch(
   async () => {
     await nextTick()
     
-    // Auto scroll to bottom if user is near the bottom
-    if (!messagesAreaRef.value) return
+    if (!messagesContainerRef.value) return
     
-    const { scrollTop, scrollHeight, clientHeight } = messagesAreaRef.value
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.value
     const isNearBottom = scrollHeight - scrollTop - clientHeight < 150
     
     if (isNearBottom || props.messages.length === 1) {
-      scrollToBottom()
+      setTimeout(() => scrollToBottom(), 100)
     }
   },
   { flush: 'post' }
@@ -160,14 +194,14 @@ watch(
 
 // Setup scroll listener
 onMounted(() => {
-  if (messagesAreaRef.value) {
-    messagesAreaRef.value.addEventListener('scroll', checkScrollPosition)
+  if (messagesContainerRef.value) {
+    messagesContainerRef.value.addEventListener('scroll', checkScrollPosition)
   }
 })
 
 onUnmounted(() => {
-  if (messagesAreaRef.value) {
-    messagesAreaRef.value.removeEventListener('scroll', checkScrollPosition)
+  if (messagesContainerRef.value) {
+    messagesContainerRef.value.removeEventListener('scroll', checkScrollPosition)
   }
 })
 </script>
@@ -177,128 +211,218 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
-.chat-container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.chat-container :deep(.el-card__body) {
-  flex: 1;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
+/* Chat Header */
 .chat-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 20px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #f0f2f5;
+  flex-shrink: 0;
 }
 
-.header-title {
+.header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+}
+
+.chat-icon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #409eff, #67c23a);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 18px;
+}
+
+.header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-title {
+  margin: 0;
+  font-size: 16px;
   font-weight: 600;
   color: #303133;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.chat-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: #909399;
 }
 
-.messages-area {
+.clear-btn {
+  color: #909399;
+  transition: color 0.2s;
+}
+
+.clear-btn:hover:not(:disabled) {
+  color: #f56c6c;
+}
+
+.clear-btn:disabled {
+  opacity: 0.5;
+}
+
+/* Messages Container */
+.messages-container {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
-  min-height: 0;
-  position: relative;
+  background: #fafbfc;
+  width: 100%;
+  max-width: 100%;
 }
 
+.messages-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: #dcdfe6;
+  border-radius: 2px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: #c0c4cc;
+}
+
+/* Empty State */
 .empty-state {
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
 }
 
 .empty-icon {
-  font-size: 120px;
-  color: #c0c4cc;
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, #409eff, #67c23a);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 28px;
+  margin-bottom: 16px;
 }
 
-.messages-list {
+.empty-title {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.empty-description {
+  margin: 0 0 24px 0;
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.5;
+}
+
+.suggestion-cards {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
+  width: 100%;
+  max-width: 300px;
 }
 
-.message-item {
-  animation: fadeInUp 0.3s ease-out;
-}
-
-.streaming-indicator {
-  display: flex;
-  justify-content: flex-start;
-  margin-top: 8px;
-}
-
-.streaming-bubble {
+.suggestion-card {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background-color: #f5f7fa;
-  border-radius: 18px;
+  background: #ffffff;
   border: 1px solid #e4e7ed;
-  max-width: 200px;
-}
-
-.streaming-dots {
-  display: flex;
-  gap: 4px;
-}
-
-.streaming-dots span {
-  width: 6px;
-  height: 6px;
-  background-color: #409eff;
-  border-radius: 50%;
-  animation: streamingDots 1.4s infinite ease-in-out;
-}
-
-.streaming-dots span:nth-child(1) {
-  animation-delay: -0.32s;
-}
-
-.streaming-dots span:nth-child(2) {
-  animation-delay: -0.16s;
-}
-
-.streaming-text {
-  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
   color: #606266;
 }
 
-.scroll-button {
+.suggestion-card:hover {
+  border-color: #409eff;
+  background: #f0f9ff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.15);
+}
+
+.suggestion-icon {
+  font-size: 16px;
+  color: #409eff;
+}
+
+.suggestion-text {
+  flex: 1;
+  text-align: left;
+}
+
+/* Messages List */
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+
+
+/* Scroll Button */
+.scroll-btn {
   position: absolute;
   bottom: 20px;
   right: 20px;
+  width: 40px;
+  height: 40px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 10;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 
-/* Animations */
-@keyframes fadeInUp {
+.fade-enter-active,
+.fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.9);
+}
+
+@keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -306,63 +430,25 @@ onUnmounted(() => {
   }
 }
 
-@keyframes streamingDots {
-  0%, 80%, 100% {
-    transform: scale(0.8);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-/* Scrollbar Styling */
-.messages-area::-webkit-scrollbar {
-  width: 6px;
-}
-
-.messages-area::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
-
-.messages-area::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
-}
-
-.messages-area::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-
 /* Responsive */
 @media (max-width: 768px) {
-  .messages-area {
+  .chat-header {
+    padding: 16px 20px;
+  }
+  
+  .messages-container {
     padding: 12px;
   }
   
-  .messages-list {
-    gap: 12px;
+  .suggestion-cards {
+    max-width: 100%;
   }
   
-  .scroll-button {
+  .scroll-btn {
     bottom: 16px;
     right: 16px;
-  }
-  
-  .header-title span {
-    display: none;
+    width: 36px;
+    height: 36px;
   }
 }
 </style>

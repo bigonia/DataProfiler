@@ -1,5 +1,5 @@
 import request from './request'
-import type { DataSourceConfig, ProfilingTask, AnalysisRequest, AnalysisStreamResponse } from '@/types'
+import type { DataSourceConfig, ProfilingTask, AnalysisRequest, AnalysisStreamResponse, TextChunkData } from '@/types'
 
 // AI Analysis API Service
 export const aiApi = {
@@ -122,10 +122,22 @@ export const aiApi = {
                     }
                     break
                   case 'chunk':
-                    responseData = {
-                      type: 'content',
-                      event: currentEvent,
-                      content: dataContent
+                    // Handle text chunk events for typewriter effect
+                    try {
+                      const chunkData = JSON.parse(dataContent) as TextChunkData
+                      responseData = {
+                        type: 'chunk',
+                        event: currentEvent,
+                        content: chunkData.text || chunkData.delta || dataContent,
+                        chunkData: chunkData
+                      }
+                    } catch {
+                      // Fallback to plain text if parsing fails
+                      responseData = {
+                        type: 'chunk',
+                        event: currentEvent,
+                        content: dataContent
+                      }
                     }
                     break
                   case 'error':

@@ -105,6 +105,39 @@
           </div>
         </div>
         
+        <!-- Advanced Configuration -->
+        <div class="form-section">
+          <el-collapse v-model="activeCollapse">
+            <el-collapse-item title="Advanced Configuration" name="advanced">
+              <div class="advanced-config">
+                <el-form-item label="Field Max Length" prop="fieldMaxLength">
+                  <el-input-number
+                    v-model="form.fieldMaxLength"
+                    :min="32"
+                    :max="1024"
+                    :step="32"
+                    placeholder="128"
+                    style="width: 200px"
+                  />
+                  <div class="field-hint">Maximum length for field content display (default: 128)</div>
+                </el-form-item>
+                
+                <el-form-item label="Sample Data Limit" prop="sampleDataLimit">
+                  <el-input-number
+                    v-model="form.sampleDataLimit"
+                    :min="5"
+                    :max="100"
+                    :step="5"
+                    placeholder="10"
+                    style="width: 200px"
+                  />
+                  <div class="field-hint">Maximum number of sample data rows (default: 10)</div>
+                </el-form-item>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+        
         <!-- Schema & Table Selection -->
         <el-card v-if="form.dataSourceIds.length > 0" class="datasource-selection">
           <template #header>
@@ -146,8 +179,48 @@
                         @change="toggleSchemaSelection(dataSource.sourceId, schemaName)"
                       >
                         {{ schemaName }}
-                        <span class="table-count">({{ tables.length }} tables)</span>
+                        <span class="table-count">({{ getOriginalTableCount(dataSource.sourceId, schemaName) }} tables, {{ tables.length }} selected)</span>
                       </el-checkbox>
+                      <el-button 
+                        type="text" 
+                        size="small"
+                        @click="toggleSchemaExpansion(dataSource.sourceId, schemaName)"
+                      >
+                        <el-icon>
+                          <ArrowUp v-if="isSchemaExpanded(dataSource.sourceId, schemaName)" />
+                          <ArrowDown v-else />
+                        </el-icon>
+                        {{ isSchemaExpanded(dataSource.sourceId, schemaName) ? 'Collapse' : 'Expand' }}
+                      </el-button>
+                    </div>
+                    
+                    <!-- Expanded table list -->
+                    <div v-if="isSchemaExpanded(dataSource.sourceId, schemaName)" class="table-list">
+                      <div class="table-list-header">
+                        <el-checkbox 
+                          :model-value="areAllTablesSelected(dataSource.sourceId, schemaName)"
+                          :indeterminate="isSomeTablesSelected(dataSource.sourceId, schemaName)"
+                          @change="toggleAllTablesInSchema(dataSource.sourceId, schemaName)"
+                        >
+                          Select All Tables
+                        </el-checkbox>
+                      </div>
+                      <div class="table-grid">
+                        <div 
+                          v-for="tableName in getOriginalTables(dataSource.sourceId, schemaName)" 
+                          :key="`${dataSource.sourceId}-${schemaName}-${tableName}`" 
+                          class="table-checkbox"
+                        >
+                          <el-checkbox 
+                            :model-value="isTableSelected(dataSource.sourceId, schemaName, tableName)"
+                            @change="toggleTableSelection(dataSource.sourceId, schemaName, tableName)"
+                          >
+                            <div class="table-info">
+                              <span class="table-name">{{ tableName }}</span>
+                            </div>
+                          </el-checkbox>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -190,6 +263,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import {
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   Coin,
   Refresh,
   Loading,
@@ -212,6 +287,8 @@ const loadingSchemas = ref<Record<string, boolean>>({})
 const tableSelectionMode = ref('all')
 const selectAllTables = ref(false)
 const availableTables = ref<TableInfo[]>([])
+const activeCollapse = ref<string[]>([])
+const expandedSchemas = ref<Record<string, boolean>>({})
 
 const form = ref({
   taskName: '',
@@ -220,7 +297,9 @@ const form = ref({
   dataSourceConfigs: {} as Record<string, {
     schemas: Record<string, string[]>
     originalSchemas?: Record<string, string[]>
-  }>
+  }>,
+  fieldMaxLength: 128,
+  sampleDataLimit: 10
 })
 
 const formRules = {
@@ -230,6 +309,12 @@ const formRules = {
   ],
   dataSourceIds: [
     { required: true, message: 'Please select at least one data source', trigger: 'change' }
+  ],
+  fieldMaxLength: [
+    { type: 'number', min: 32, max: 1024, message: 'Field max length must be between 32 and 1024', trigger: 'blur' }
+  ],
+  sampleDataLimit: [
+    { type: 'number', min: 5, max: 100, message: 'Sample data limit must be between 5 and 100', trigger: 'blur' }
   ]
 }
 
@@ -344,6 +429,77 @@ const toggleSchemaSelection = (sourceId: string, schema: string) => {
   }
 }
 
+// Schema expansion methods
+const toggleSchemaExpansion = (sourceId: string, schema: string) => {
+  const key = `${sourceId}-${schema}`
+  expandedSchemas.value[key] = !expandedSchemas.value[key]
+}
+
+const isSchemaExpanded = (sourceId: string, schema: string) => {
+  const key = `${sourceId}-${schema}`
+  return expandedSchemas.value[key] || false
+}
+
+// Table selection methods
+const getOriginalTables = (sourceId: string, schema: string) => {
+  const config = form.value.dataSourceConfigs[sourceId]
+  return config?.originalSchemas?.[schema] || []
+}
+
+const getOriginalTableCount = (sourceId: string, schema: string) => {
+  return getOriginalTables(sourceId, schema).length
+}
+
+const isTableSelected = (sourceId: string, schema: string, tableName: string) => {
+  const config = form.value.dataSourceConfigs[sourceId]
+  const selectedTables = config?.schemas[schema] || []
+  return selectedTables.includes(tableName)
+}
+
+const toggleTableSelection = (sourceId: string, schema: string, tableName: string) => {
+  if (!form.value.dataSourceConfigs[sourceId]) return
+  
+  const config = form.value.dataSourceConfigs[sourceId]
+  const selectedTables = config.schemas[schema] || []
+  const isSelected = selectedTables.includes(tableName)
+  
+  if (isSelected) {
+    // Remove table from selection
+    config.schemas[schema] = selectedTables.filter(t => t !== tableName)
+  } else {
+    // Add table to selection
+    config.schemas[schema] = [...selectedTables, tableName]
+  }
+}
+
+const areAllTablesSelected = (sourceId: string, schema: string) => {
+  const originalTables = getOriginalTables(sourceId, schema)
+  const selectedTables = form.value.dataSourceConfigs[sourceId]?.schemas[schema] || []
+  return originalTables.length > 0 && selectedTables.length === originalTables.length
+}
+
+const isSomeTablesSelected = (sourceId: string, schema: string) => {
+  const originalTables = getOriginalTables(sourceId, schema)
+  const selectedTables = form.value.dataSourceConfigs[sourceId]?.schemas[schema] || []
+  return selectedTables.length > 0 && selectedTables.length < originalTables.length
+}
+
+const toggleAllTablesInSchema = (sourceId: string, schema: string) => {
+  if (!form.value.dataSourceConfigs[sourceId]) return
+  
+  const config = form.value.dataSourceConfigs[sourceId]
+  const originalTables = getOriginalTables(sourceId, schema)
+  const allSelected = areAllTablesSelected(sourceId, schema)
+  
+  if (allSelected) {
+    // Deselect all tables
+    config.schemas[schema] = []
+  } else {
+    // Select all tables
+    config.schemas[schema] = [...originalTables]
+  }
+}
+
 const loadTables = async () => {
   if (!form.value.dataSourceId) return
   
@@ -421,7 +577,9 @@ const submitForm = async () => {
     }
     
     const taskData = {
-      datasources: datasources
+      datasources: datasources,
+      fieldMaxLength: form.value.fieldMaxLength,
+      sampleDataLimit: form.value.sampleDataLimit
     }
     
     await taskStore.createTask(taskData)
@@ -457,7 +615,9 @@ const resetForm = () => {
     taskName: '',
     description: '',
     dataSourceIds: [],
-    dataSourceConfigs: {}
+    dataSourceConfigs: {},
+    fieldMaxLength: 128,
+    sampleDataLimit: 10
   }
   
   // Reset selection mode
@@ -644,6 +804,25 @@ const resetForm = () => {
   margin-left: 8px;
 }
 
+.table-list {
+  padding: 16px;
+  background: #fff;
+}
+
+.table-list-header {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 .loading-state,
 .empty-state {
   display: flex;
@@ -692,6 +871,47 @@ const resetForm = () => {
 .table-rows {
   font-size: 12px;
   color: #909399;
+}
+
+.advanced-config {
+  padding: 16px 0;
+}
+
+.advanced-config .el-form-item {
+  margin-bottom: 24px;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.el-collapse {
+  border: none;
+}
+
+.el-collapse-item__header {
+  background: #f8f9fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-weight: 500;
+  color: #303133;
+}
+
+.el-collapse-item__wrap {
+  border: none;
+  background: #fff;
+}
+
+.el-collapse-item__content {
+  padding: 16px 0 0 0;
+  border: 1px solid #e4e7ed;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: #fafbfc;
 }
 
 .form-actions {

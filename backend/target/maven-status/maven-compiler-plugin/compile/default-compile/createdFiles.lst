@@ -51,8 +51,10 @@ com\dataprofiler\exception\BusinessException.class
 com\dataprofiler\dto\request\ReportQueryDto.class
 com\dataprofiler\service\impl\DataSourceServiceImpl.class
 com\dataprofiler\service\impl\ReportAssemblyServiceImpl.class
+com\dataprofiler\config\SampleRowsDeserializer.class
 com\dataprofiler\util\FileConversionUtil$1.class
 com\dataprofiler\profiler\IDatabaseProfiler.class
+com\dataprofiler\dto\response\DifyNodeData.class
 com\dataprofiler\utils\JpaMapConverter.class
 com\dataprofiler\config\AppConfig.class
 com\dataprofiler\service\FileService$FileStatistics.class
@@ -72,12 +74,14 @@ com\dataprofiler\dto\response\StructuredReportDto$ColumnMetrics.class
 com\dataprofiler\exception\DataAccessException.class
 com\dataprofiler\exception\ResourceNotFoundException.class
 com\dataprofiler\service\impl\FileServiceImpl.class
+com\dataprofiler\controller\AIContextController.class
 com\dataprofiler\dto\internal\RawProfileDataDto$ColumnData.class
 com\dataprofiler\service\DataSourceService.class
 com\dataprofiler\util\TablePaginationUtil.class
 com\dataprofiler\dto\request\AnalysisRequest.class
 com\dataprofiler\config\AppConfig$AppProperties.class
 com\dataprofiler\dto\response\ReportInfoDto.class
+com\dataprofiler\dto\response\DifySseEvent.class
 com\dataprofiler\repository\DataSourceConfigRepository.class
 com\dataprofiler\service\StructuredReportService.class
 com\dataprofiler\dto\response\StructuredReportDto$ColumnReport.class
@@ -87,6 +91,7 @@ com\dataprofiler\entity\DataSourceConfig.class
 com\dataprofiler\config\ServiceConfig.class
 com\dataprofiler\dto\FileLoadResult.class
 com\dataprofiler\dto\internal\RawProfileDataDto.class
+com\dataprofiler\dto\response\DifyTextChunk.class
 com\dataprofiler\util\FileConversionUtil.class
 com\dataprofiler\utils\JpaMapConverter$1.class
 com\dataprofiler\dto\response\StructuredReportDto$ValueRange$CompactFormat.class
@@ -103,6 +108,7 @@ com\dataprofiler\service\AIService.class
 com\dataprofiler\config\AppConfig$AppProperties$FileProperties.class
 com\dataprofiler\client\DifyApiClient.class
 com\dataprofiler\exception\ProfilingTaskException.class
+com\dataprofiler\service\impl\AIContextServiceImpl.class
 com\dataprofiler\util\TablePaginationUtil$TableWithDetailedDataSource.class
 com\dataprofiler\dto\request\TaskReportRequest.class
 com\dataprofiler\service\FileManagementService$FileStatistics.class
@@ -124,4 +130,5 @@ com\dataprofiler\entity\ProfilingTask.class
 com\dataprofiler\service\FileService.class
 com\dataprofiler\aspect\RequestLoggingAspect.class
 com\dataprofiler\dto\response\StructuredReportDto.class
+com\dataprofiler\service\AIContextService.class
 com\dataprofiler\service\impl\ReportTransformServiceImpl$DatabaseSummary.class

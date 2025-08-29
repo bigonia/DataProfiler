@@ -1,0 +1,207 @@
+.ai-context-viewer {
+  width: 100%;
+}
+
+.ai-context-viewer .ant-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+}
+
+.ai-context-viewer .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.ai-context-viewer .ant-card-head-title {
+  font-weight: 600;
+  color: #262626;
+}
+
+.ai-context-viewer .ant-input {
+  border-radius: 6px;
+}
+
+.ai-context-viewer .ant-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.ai-context-viewer .ant-btn-primary {
+  background: #1890ff;
+  border-color: #1890ff;
+}
+
+.ai-context-viewer .ant-btn-primary:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.ai-context-viewer .ant-alert {
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.ai-context-viewer .ant-statistic {
+  text-align: center;
+}
+
+.ai-context-viewer .ant-statistic-title {
+  font-size: 12px;
+  color: #8c8c8c;
+  font-weight: 500;
+}
+
+.ai-context-viewer .ant-statistic-content {
+  font-size: 16px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.ai-context-viewer .ant-statistic-content-suffix {
+  font-size: 12px;
+  color: #8c8c8c;
+  font-weight: normal;
+}
+
+.ai-context-viewer .ant-textarea {
+  border-radius: 6px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background: #fafafa;
+}
+
+.ai-context-viewer .ant-textarea:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+.ai-context-viewer .ant-divider {
+  margin: 24px 0 16px 0;
+}
+
+.ai-context-viewer .ant-typography h4 {
+  color: #262626;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.ai-context-viewer .ant-spin-container {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.ai-context-viewer .ant-modal-content {
+  border-radius: 8px;
+}
+
+.ai-context-viewer .ant-modal-header {
+  border-bottom: 1px solid #f0f0f0;
+  border-radius: 8px 8px 0 0;
+}
+
+.ai-context-viewer .ant-input-number {
+  border-radius: 6px;
+}
+
+/* Custom radio button styling */
+.ai-context-viewer input[type="radio"] {
+  margin-right: 8px;
+  accent-color: #1890ff;
+}
+
+.ai-context-viewer label {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.ai-context-viewer label:hover {
+  background-color: #f5f5f5;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .ai-context-viewer .ant-col {
+    margin-bottom: 16px;
+  }
+  
+  .ai-context-viewer .ant-space {
+    flex-wrap: wrap;
+  }
+  
+  .ai-context-viewer .ant-btn {
+    margin-bottom: 8px;
+  }
+}
+
+/* Loading state */
+.ai-context-viewer .loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px dashed #d9d9d9;
+}
+
+.ai-context-viewer .loading-text {
+  margin-top: 16px;
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+/* Success state indicators */
+.ai-context-viewer .success-indicator {
+  color: #52c41a;
+}
+
+.ai-context-viewer .warning-indicator {
+  color: #faad14;
+}
+
+.ai-context-viewer .error-indicator {
+  color: #ff4d4f;
+}
+
+/* Context preview */
+.ai-context-viewer .context-preview {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 12px;
+  background: #fafafa;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-context-viewer .context-preview::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ai-context-viewer .context-preview::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.ai-context-viewer .context-preview::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.ai-context-viewer .context-preview::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}

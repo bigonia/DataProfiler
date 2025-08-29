@@ -6,8 +6,10 @@ import com.dataprofiler.dto.response.ReportInfoDto;
 import com.dataprofiler.dto.response.ReportSummaryDto;
 import com.dataprofiler.dto.response.StructuredReportDto;
 import com.dataprofiler.entity.DataSourceConfig;
+import com.dataprofiler.entity.ProfilingTask;
 import com.dataprofiler.entity.StructuredReport;
 import com.dataprofiler.repository.DataSourceConfigRepository;
+import com.dataprofiler.repository.ProfilingTaskRepository;
 import com.dataprofiler.repository.StructuredReportRepository;
 import com.dataprofiler.service.ReportTransformService;
 import com.dataprofiler.service.StructuredReportService;
@@ -25,16 +27,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * Implementation of StructuredReportService interface
  * Core report persistence and retrieval service with performance optimizations
- * 
+ * <p>
  * Key responsibilities:
  * - Persist structured reports with optimized storage
  * - Provide efficient report retrieval with filtering and pagination
@@ -59,6 +58,9 @@ public class StructuredReportServiceImpl implements StructuredReportService {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private ProfilingTaskRepository profilingTaskRepository;
+
     @Override
     public void saveReports(String taskId, List<StructuredReportDto> reports) {
         logger.info("Starting to save {} structured reports for task: {}", reports != null ? reports.size() : 0, taskId);
@@ -77,7 +79,7 @@ public class StructuredReportServiceImpl implements StructuredReportService {
                         entities.add(entity);
                     }
                 } catch (Exception e) {
-                    logger.error("Failed to convert report DTO to entity for task: {}, dataSource: {}", 
+                    logger.error("Failed to convert report DTO to entity for task: {}, dataSource: {}",
                             reportDto.getTaskId(), reportDto.getDataSourceId(), e);
                     // Continue processing other reports
                 }
@@ -86,7 +88,7 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             if (!entities.isEmpty()) {
                 // Batch save for performance optimization
                 List<StructuredReport> savedReports = structuredReportRepository.saveAll(entities);
-                logger.info("Successfully saved {} structured reports out of {} provided", 
+                logger.info("Successfully saved {} structured reports out of {} provided",
                         savedReports.size(), reports.size());
             } else {
                 logger.warn("No valid reports to save after conversion");
@@ -118,55 +120,12 @@ public class StructuredReportServiceImpl implements StructuredReportService {
         }
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public Page<StructuredReportDto> getDetailedReport(DetailedReportRequest request) {
-        logger.debug("Retrieving detailed reports with request: {}", request);
-
-        try {
-            // Create pageable with sorting
-            Sort sort = Sort.by(Sort.Direction.DESC, "generatedAt");
-            Pageable pageable = PageRequest.of(
-                    request.getPage(),
-                    request.getPageSize(),
-                    sort
-            );
-
-            Page<StructuredReport> reportPage;
-
-            // Query by data source IDs with pagination
-            reportPage = structuredReportRepository.findByTaskId(request.getTaskId(), pageable);
-
-            // Apply additional filtering for schemas and tables if needed
-            List<StructuredReport> filteredReports = reportPage.getContent().stream()
-                    .filter(report -> matchesFilterCriteria(report, request.getFilters()))
-                    .collect(Collectors.toList());
-
-            // Create new page with filtered results
-            reportPage = new PageImpl<>(filteredReports, pageable, filteredReports.size());
-
-            // Convert entities to DTOs
-            Page<StructuredReportDto> resultPage = reportPage.map(this::convertToDto);
-
-            logger.debug("Retrieved {} detailed reports (page {} of {})",
-                    resultPage.getNumberOfElements(),
-                    resultPage.getNumber() + 1,
-                    resultPage.getTotalPages());
-
-            return resultPage;
-
-        } catch (Exception e) {
-            logger.error("Error retrieving detailed reports with request: {}", request, e);
-            throw new RuntimeException("Failed to retrieve detailed reports: " + e.getMessage(), e);
-        }
-    }
-
     /**
-      * Check if a report matches the filter criteria
-      */
+     * Check if a report matches the filter criteria
+     */
     private boolean matchesFilterCriteria(StructuredReport report, DetailedReportRequest.FilterCriteria filters) {
 
-        if(filters==null || filters.getDataSources()==null || filters.getDataSources().isEmpty()){
+        if (filters == null || filters.getDataSources() == null || filters.getDataSources().isEmpty()) {
             return true;
         }
 
@@ -176,38 +135,38 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             if (reportDto == null || reportDto.getTables() == null) {
                 return false;
             }
-            
+
             // Get filter configuration for this data source
             DetailedReportRequest.DataSourceScope dataSourceScope = filters.getDataSources().get(report.getDataSourceId());
             if (dataSourceScope == null) {
                 return false;
             }
-            
+
             // If no specific schemas/tables are specified, include all tables from this data source
             if (dataSourceScope.getSchemas() == null || dataSourceScope.getSchemas().isEmpty()) {
                 return true;
             }
-            
+
             // Check if any table in the report matches the schema/table filters
             return reportDto.getTables().stream().anyMatch(table -> {
                 String schemaName = table.getSchemaName();
                 String tableName = table.getName();
-                
+
                 // Check if this table's schema is in the filter
                 List<String> allowedTables = dataSourceScope.getSchemas().get(schemaName);
                 if (allowedTables == null) {
                     return false;
                 }
-                
+
                 // If no specific tables are specified for this schema, include all tables
                 if (allowedTables.isEmpty()) {
                     return true;
                 }
-                
+
                 // Check if this specific table is in the filter
                 return allowedTables.contains(tableName);
             });
-            
+
         } catch (Exception e) {
             logger.warn("Error checking filter criteria for report: {}", report.getTaskId(), e);
             return false;
@@ -220,40 +179,40 @@ public class StructuredReportServiceImpl implements StructuredReportService {
     private StructuredReport convertToEntity(StructuredReportDto dto) {
         try {
             StructuredReport entity = new StructuredReport();
-            
+
             // Basic fields
             entity.setTaskId(dto.getTaskId());
             entity.setDataSourceId(dto.getDataSourceId());
             entity.setGeneratedAt(dto.getGeneratedAt() != null ? dto.getGeneratedAt() : LocalDateTime.now());
-            
+
             // Serialize complex objects to JSON for storage
             if (dto.getDatabase() != null) {
                 entity.setDatabaseProfileJson(objectMapper.writeValueAsString(dto.getDatabase()));
             }
-            
+
             if (dto.getTables() != null && !dto.getTables().isEmpty()) {
                 entity.setTableProfilesJson(objectMapper.writeValueAsString(dto.getTables()));
             }
-            
+
             // Extract summary fields for efficient querying from tables data
             if (dto.getTables() != null) {
                 entity.setTotalTables(dto.getTables().size());
-                
+
                 int totalColumns = dto.getTables().stream()
-                    .mapToInt(table -> table.getColumns() != null ? table.getColumns().size() : 0)
-                    .sum();
+                        .mapToInt(table -> table.getColumns() != null ? table.getColumns().size() : 0)
+                        .sum();
                 entity.setTotalColumns(totalColumns);
-                
+
                 Long totalRows = dto.getTables().stream()
-                    .mapToLong(table -> table.getRowCount() != null ? table.getRowCount() : 0L)
-                    .sum();
+                        .mapToLong(table -> table.getRowCount() != null ? table.getRowCount() : 0L)
+                        .sum();
                 entity.setEstimatedTotalRows(totalRows);
             }
-            
+
             return entity;
-            
+
         } catch (JsonProcessingException e) {
-            logger.error("Failed to serialize report DTO to JSON for task: {}, dataSource: {}", 
+            logger.error("Failed to serialize report DTO to JSON for task: {}, dataSource: {}",
                     dto.getTaskId(), dto.getDataSourceId(), e);
             return null;
         }
@@ -265,7 +224,7 @@ public class StructuredReportServiceImpl implements StructuredReportService {
     private StructuredReportDto convertToDto(StructuredReport entity) {
         try {
             StructuredReportDto dto = new StructuredReportDto();
-            
+
             // Basic fields
             dto.setTaskId(entity.getTaskId());
             dto.setDataSourceId(entity.getDataSourceId());
@@ -278,28 +237,138 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             } else {
                 logger.warn("DataSourceConfig not found for sourceId: {}", entity.getDataSourceId());
             }
-            
+
             // Deserialize JSON fields to objects
             if (entity.getDatabaseProfileJson() != null) {
                 dto.setDatabase(objectMapper.readValue(
-                        entity.getDatabaseProfileJson(), 
+                        entity.getDatabaseProfileJson(),
                         StructuredReportDto.DatabaseInfo.class));
             }
-            
+
             if (entity.getTableProfilesJson() != null) {
-                dto.setTables(objectMapper.readValue(
-                        entity.getTableProfilesJson(), 
+                List<StructuredReportDto.TableReport> tables = objectMapper.readValue(
+                        entity.getTableProfilesJson(),
                         objectMapper.getTypeFactory().constructCollectionType(
-                                List.class, StructuredReportDto.TableReport.class)));
+                                List.class, StructuredReportDto.TableReport.class));
+
+                // Apply task configuration filtering
+                tables = applyTaskConfigurationFiltering(entity.getTaskId(), tables);
+                dto.setTables(tables);
             }
-            
+
             return dto;
-            
+
         } catch (JsonProcessingException e) {
-            logger.error("Failed to deserialize report entity JSON for task: {}, dataSource: {}", 
+            logger.error("Failed to deserialize report entity JSON for task: {}, dataSource: {}",
                     entity.getTaskId(), entity.getDataSourceId(), e);
             return null;
         }
+    }
+
+    /**
+     * Apply content filtering to report based on filter criteria
+     * Only returns tables that match the specified schemas and tables in the filter
+     */
+    private StructuredReportDto applyContentFiltering(StructuredReportDto reportDto, DetailedReportRequest.FilterCriteria filters) {
+        if (filters == null || filters.getDataSources() == null || filters.getDataSources().isEmpty()) {
+            return reportDto;
+        }
+
+        try {
+            // Get filter configuration for this data source
+            DetailedReportRequest.DataSourceScope dataSourceScope = filters.getDataSources().get(reportDto.getDataSourceId());
+            if (dataSourceScope == null) {
+                // If data source is not in filter, return empty report
+                reportDto.setTables(new ArrayList<>());
+                return reportDto;
+            }
+
+            // If no specific schemas/tables are specified, return all tables from this data source
+            if (dataSourceScope.getSchemas() == null || dataSourceScope.getSchemas().isEmpty()) {
+                return reportDto;
+            }
+
+            // Filter tables based on schema/table criteria
+            List<StructuredReportDto.TableReport> filteredTables = reportDto.getTables().stream()
+                    .filter(table -> {
+                        String schemaName = table.getSchemaName();
+                        String tableName = table.getName();
+
+                        // Check if this table's schema is in the filter
+                        List<String> allowedTables = dataSourceScope.getSchemas().get(schemaName);
+                        if (allowedTables == null) {
+                            return false;
+                        }
+
+                        // If no specific tables are specified for this schema, include all tables
+                        if (allowedTables.isEmpty()) {
+                            return true;
+                        }
+
+                        // Check if this specific table is in the filter
+                        return allowedTables.contains(tableName);
+                    })
+                    .collect(Collectors.toList());
+
+            reportDto.setTables(filteredTables);
+            return reportDto;
+
+        } catch (Exception e) {
+            logger.warn("Error applying content filtering for report: {}", reportDto.getDataSourceId(), e);
+            return reportDto;
+        }
+    }
+
+    /**
+     * Apply task configuration filtering to table reports
+     * Filters field content length and sample data based on task configuration
+     */
+    private List<StructuredReportDto.TableReport> applyTaskConfigurationFiltering(
+            String taskId, List<StructuredReportDto.TableReport> tables) {
+        try {
+            // Get task configuration
+            Optional<ProfilingTask> taskOpt = profilingTaskRepository.findByTaskId(taskId);
+            if (!taskOpt.isPresent()) {
+                logger.warn("Task not found for filtering: {}", taskId);
+                return tables;
+            }
+
+            ProfilingTask task = taskOpt.get();
+            Integer fieldMaxLength = task.getFieldMaxLength() != null ? task.getFieldMaxLength() : 128;
+            Integer sampleDataLimit = task.getSampleDataLimit() != null ? task.getSampleDataLimit() : 10;
+
+            // Apply filtering to each table
+            return tables.stream().map(table -> {
+                table.getSampleRows().forEach(row -> {
+                            List<String> collect = row.stream()
+                                    .map(value -> truncateFieldContent(String.valueOf(value), fieldMaxLength))
+                                    .collect(Collectors.toList());
+                            row.clear();
+                            row.addAll(collect);
+                        }
+                );
+                // Limit sample data rows
+                if (table.getSampleRows() != null && table.getSampleRows().size() > sampleDataLimit) {
+                    table.setSampleRows(table.getSampleRows().subList(0, sampleDataLimit));
+                }
+
+                return table;
+            }).collect(Collectors.toList());
+
+        } catch (Exception e) {
+            logger.error("Error applying task configuration filtering for task: {}", taskId, e);
+            return tables;
+        }
+    }
+
+    /**
+     * Truncate field content to specified maximum length
+     */
+    private String truncateFieldContent(String content, Integer maxLength) {
+        if (content == null || maxLength == null || content.length() <= maxLength) {
+            return content;
+        }
+        return content.substring(0, maxLength) + "...";
     }
 
     /**
@@ -330,22 +399,22 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             if (summary == null) {
                 return null;
             }
-            
+
             // Set summary statistics from denormalized fields
             summary.setTotalTables(entity.getTotalTables());
             summary.setTotalColumns(entity.getTotalColumns());
             summary.setEstimatedTotalRows(entity.getEstimatedTotalRows());
             summary.setEstimatedTotalSizeBytes(entity.getEstimatedTotalSizeBytes());
-            
+
             // Calculate data size in human-readable format
             if (entity.getEstimatedTotalSizeBytes() != null) {
                 summary.setFormattedDataSize(formatBytes(entity.getEstimatedTotalSizeBytes()));
             }
-            
+
             return summary;
-            
+
         } catch (Exception e) {
-            logger.error("Failed to convert entity to summary DTO for task: {}, dataSource: {}", 
+            logger.error("Failed to convert entity to summary DTO for task: {}, dataSource: {}",
                     entity.getTaskId(), entity.getDataSourceId(), e);
             return null;
         }
@@ -358,16 +427,16 @@ public class StructuredReportServiceImpl implements StructuredReportService {
         if (bytes == null || bytes < 0) {
             return "0 B";
         }
-        
+
         String[] units = {"B", "KB", "MB", "GB", "TB", "PB"};
         int unitIndex = 0;
         double size = bytes.doubleValue();
-        
+
         while (size >= 1024 && unitIndex < units.length - 1) {
             size /= 1024;
             unitIndex++;
         }
-        
+
         return String.format("%.2f %s", size, units[unitIndex]);
     }
 
@@ -378,7 +447,7 @@ public class StructuredReportServiceImpl implements StructuredReportService {
         if (seconds == null || seconds < 0) {
             return "0s";
         }
-        
+
         if (seconds < 60) {
             return seconds + "s";
         } else if (seconds < 3600) {
@@ -399,7 +468,7 @@ public class StructuredReportServiceImpl implements StructuredReportService {
     @Transactional
     public void deleteReportsByTaskId(String taskId) {
         logger.info("Deleting reports for task: {}", taskId);
-        
+
         try {
             structuredReportRepository.deleteByTaskId(taskId);
             logger.info("Successfully deleted reports for task: {}", taskId);
@@ -440,10 +509,12 @@ public class StructuredReportServiceImpl implements StructuredReportService {
                     .filter(report -> matchesFilterCriteria(report, request.getFilters()))
                     .collect(Collectors.toList());
 
-            // Convert entities to DTOs
+            // Convert entities to DTOs and apply content filtering
             List<StructuredReportDto> resultList = filteredReports.stream()
                     .map(this::convertToDto)
                     .filter(dto -> dto != null)
+                    .map(dto -> applyContentFiltering(dto, request.getFilters()))
+                    .filter(dto -> dto != null && dto.getTables() != null && !dto.getTables().isEmpty())
                     .collect(Collectors.toList());
 
             logger.debug("Retrieved {} detailed reports for table-based pagination", resultList.size());
@@ -498,7 +569,7 @@ public class StructuredReportServiceImpl implements StructuredReportService {
             dto.setId(entity.getId());
             dto.setTaskId(entity.getTaskId());
             dto.setDataSourceId(entity.getDataSourceId());
-            
+
             // Get data source name from DataSourceConfig
             try {
                 DataSourceConfig dataSourceConfig = dataSourceConfigRepository.findBySourceId(entity.getDataSourceId());
@@ -514,15 +585,15 @@ public class StructuredReportServiceImpl implements StructuredReportService {
                 dto.setDataSourceName("Unknown");
                 dto.setDataSourceType(null); // Set to null for unknown type
             }
-            
+
             dto.setGeneratedAt(entity.getGeneratedAt());
             dto.setTotalTables(entity.getTotalTables());
             dto.setTotalColumns(entity.getTotalColumns());
             dto.setEstimatedTotalRows(entity.getEstimatedTotalRows());
             dto.setEstimatedTotalSizeBytes(entity.getEstimatedTotalSizeBytes());
-            
+
             return dto;
-            
+
         } catch (Exception e) {
             logger.error("Error converting StructuredReport to ReportInfoDto for report ID: {}", entity.getId(), e);
             throw new RuntimeException("Failed to convert report to info DTO: " + e.getMessage(), e);

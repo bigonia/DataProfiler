@@ -272,16 +272,32 @@ export interface AnalysisRequest {
 }
 
 export interface AnalysisStreamResponse {
-  type: 'status' | 'content' | 'error' | 'complete' | 'progress'
+  type: 'status' | 'content' | 'error' | 'complete' | 'progress' | 'chunk'
   event?: string // SSE event type (status, connected, started, progress, chunk, etc.)
   content?: string
   error?: string
   timestamp?: string
   nodeData?: WorkflowNodeData // Workflow node execution data
+  chunkData?: TextChunkData // Text chunk data for typewriter effect
+}
+
+// Text chunk data from AI streaming response
+export interface TextChunkData {
+  text?: string
+  index?: number
+  delta?: string
+  finishReason?: string
 }
 
 // Workflow Node Data from AI analysis
 export interface WorkflowNodeData {
+  nodeId?: string
+  nodeTitle?: string
+  nodeType?: string
+  status?: string
+  elapsedTime?: number
+  outputs?: Record<string, any>
+  // Legacy fields for compatibility
   node_id?: string
   node_type?: string
   title?: string
@@ -289,8 +305,6 @@ export interface WorkflowNodeData {
   predecessor_node_id?: string
   inputs?: Record<string, any>
   process_data?: Record<string, any>
-  outputs?: Record<string, any>
-  status?: string
   error?: string
   elapsed_time?: number
   execution_metadata?: {

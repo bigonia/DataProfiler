@@ -8,6 +8,7 @@ import com.dataprofiler.profiler.IDatabaseProfiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.sql.*;
 import java.util.*;
@@ -98,7 +99,7 @@ public class PostgreSqlProfiler implements IDatabaseProfiler {
         
         try (Connection connection = createConnection(dataSourceConfig)) {
             // Get all schemas first
-            List<String> schemas = getSchemasInternal(connection);
+            List<String> schemas = getSchemasInternal(connection,dataSourceConfig.getDatabaseName());
             
             // For each schema, get its tables
             for (String schema : schemas) {
@@ -121,7 +122,7 @@ public class PostgreSqlProfiler implements IDatabaseProfiler {
         logger.info("Getting schemas for PostgreSQL data source: {}", dataSourceConfig.getSourceId());
         
         try (Connection connection = createConnection(dataSourceConfig)) {
-            List<String> schemas = getSchemasInternal(connection);
+            List<String> schemas = getSchemasInternal(connection, dataSourceConfig.getDatabaseName());
             
             logger.info("Retrieved {} schemas for PostgreSQL data source: {}", schemas.size(), dataSourceConfig.getSourceId());
             return schemas;
@@ -179,21 +180,33 @@ public class PostgreSqlProfiler implements IDatabaseProfiler {
      * Get all schemas from the database
      * 
      * @param connection Database connection
+     * @param databaseName Specific database name to filter (optional)
      * @return List of schema names
      * @throws SQLException if query fails
      */
-    private List<String> getSchemasInternal(Connection connection) throws SQLException {
+    private List<String> getSchemasInternal(Connection connection, String databaseName) throws SQLException {
         List<String> schemas = new ArrayList<>();
         
         String sql = "SELECT schema_name FROM information_schema.schemata " +
                     "WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
-                    "AND schema_name NOT LIKE 'pg_temp_%' AND schema_name NOT LIKE 'pg_toast_temp_%' " +
-                    "ORDER BY schema_name";
+                    "AND schema_name NOT LIKE 'pg_temp_%' AND schema_name NOT LIKE 'pg_toast_temp_%' ";
         
-        try (PreparedStatement stmt = connection.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            while (rs.next()) {
-                schemas.add(rs.getString("schema_name"));
+        // If databaseName is specified, filter by it (for PostgreSQL, this would be schema filtering)
+        if (StringUtils.hasText(databaseName)) {
+            sql += "AND schema_name = ? ";
+        }
+        
+        sql += "ORDER BY schema_name";
+        
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+            if (StringUtils.hasText(databaseName)) {
+                stmt.setString(1, databaseName);
+            }
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    schemas.add(rs.getString("schema_name"));
+                }
             }
         }
         

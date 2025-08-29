@@ -160,6 +160,15 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/test-markdown',
+    name: 'TestMarkdown',
+    component: () => import('@/views/ai/test-markdown.vue'),
+    meta: {
+      title: 'Markdown Test',
+      icon: 'Document'
+    }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('@/views/NotFound.vue'),

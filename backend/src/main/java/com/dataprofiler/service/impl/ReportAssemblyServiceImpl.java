@@ -139,7 +139,7 @@ public class ReportAssemblyServiceImpl implements ReportAssemblyService {
             tableReport.setColumns(processColumnData(tableData.getColumns()));
             
             // Build sample rows from column sample values
-            Object sampleRows = buildSampleRowsFromColumns(tableData.getColumns());
+            List<List<Object>> sampleRows = buildSampleRowsFromColumns(tableData.getColumns());
             tableReport.setSampleRows(sampleRows);
         }
         
@@ -209,7 +209,7 @@ public class ReportAssemblyServiceImpl implements ReportAssemblyService {
      * Build sample rows from column sample values
      * Creates a header-rows structure with column names as headers and sample values as rows
      */
-    private Object buildSampleRowsFromColumns(List<RawProfileDataDto.ColumnData> columns) {
+    private List<List<Object>> buildSampleRowsFromColumns(List<RawProfileDataDto.ColumnData> columns) {
         if (columns == null || columns.isEmpty()) {
             return new ArrayList<>();
         }
@@ -250,12 +250,8 @@ public class ReportAssemblyServiceImpl implements ReportAssemblyService {
                 rows.add(row);
             }
             
-            // Return header-rows structure
-            Map<String, Object> sampleRowsMap = new HashMap<>();
-            sampleRowsMap.put("headers", headers);
-            sampleRowsMap.put("rows", rows);
-            
-            return sampleRowsMap;
+            // Return rows directly as List<List<Object>>
+            return rows;
             
         } catch (Exception e) {
             logger.error("Error building sample rows from columns", e);

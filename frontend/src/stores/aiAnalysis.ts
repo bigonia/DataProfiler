@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { aiApi } from '@/api'
 import { reportApi } from '@/api'
-import type { DataSourceConfig, ProfilingTask, AnalysisRequest, Message, AnalysisStreamResponse, WorkflowNodeData } from '@/types'
+import type { DataSourceConfig, ProfilingTask, AnalysisRequest, Message, AnalysisStreamResponse, WorkflowNodeData, TextChunkData } from '@/types'
 import { ElMessage } from 'element-plus'
 
 // Helper function to format workflow node information (optimized and simplified)
@@ -115,11 +115,11 @@ export const useAIAnalysisStore = defineStore('aiAnalysis', () => {
     }
     messages.value.push(userMessage)
 
-    // Add placeholder assistant message
+    // Add assistant message with initial loading content
     const assistantMessage: Message = {
       id: (Date.now() + 1).toString(),
       role: 'assistant',
-      content: '',
+      content: 'AI正在分析中...\n\n',
       timestamp: new Date().toISOString(),
       isStreaming: true,
       workflowNodes: []
@@ -145,19 +145,30 @@ export const useAIAnalysisStore = defineStore('aiAnalysis', () => {
             switch (data.type) {
               case 'status':
                 // Handle status events (connected, started, finished)
-                if (data.event === 'started') {
-                  lastMessage.content += '🚀 AI分析已开始...\n\n'
-                } else if (data.event === 'finished') {
-                  lastMessage.content += '\n\n✅ 分析完成！正在获取分析报告...\n\n'
+                if (data.event === 'finished') {
                   // Fetch analysis report after completion
                   fetchAnalysisReport(lastMessage)
                 }
                 break
               case 'content':
-                // Handle content chunks
+                // Handle content chunks (legacy)
                 lastMessage.content += data.content || ''
                 break
+              case 'chunk':
+                // Handle text chunks for typewriter effect
+                if (data.chunkData) {
+                  // Use delta for incremental text or text for full chunk
+                  const chunkText = data.chunkData.delta || data.chunkData.text || data.content || ''
+                  lastMessage.content += chunkText
+                } else {
+                  // Fallback to content field
+                  lastMessage.content += data.content || ''
+                }
+                // Force reactivity update for markdown re-rendering
+                lastMessage.timestamp = new Date().toISOString()
+                break
               case 'progress':
+              case 'node_update':
                  // Handle workflow node progress
                  if (data.nodeData) {
                    // Store node data for later display
@@ -165,12 +176,8 @@ export const useAIAnalysisStore = defineStore('aiAnalysis', () => {
                      lastMessage.workflowNodes = []
                    }
                    lastMessage.workflowNodes.push(data.nodeData)
-                   
-                   // Add formatted node info to content
-                   const nodeInfo = formatWorkflowNodeInfo(data.nodeData)
-                   if (nodeInfo) {
-                     lastMessage.content += nodeInfo
-                   }
+                   // Note: Node status is now displayed in WorkflowDisplay component
+                   // No need to add formatted node info to message content
                  }
                  break
               case 'error':
@@ -197,6 +204,27 @@ export const useAIAnalysisStore = defineStore('aiAnalysis', () => {
           const lastMessage = messages.value[messages.value.length - 1]
           if (lastMessage && lastMessage.role === 'assistant') {
             lastMessage.isStreaming = false
+            
+            // Output AI report content to console when analysis completes
+            console.group('🤖 AI Analysis Report - Task ID:', selectedTaskId.value)
+            console.log('📝 Question:', question)
+            console.log('📊 Full AI Response:')
+            console.log(lastMessage.content)
+            
+            if (lastMessage.workflowNodes && lastMessage.workflowNodes.length > 0) {
+              console.log('🔄 Workflow Execution Details:')
+              lastMessage.workflowNodes.forEach((node, index) => {
+                console.log(`  ${index + 1}. ${node.title || node.node_id}:`, {
+                  status: node.status,
+                  elapsed_time: node.elapsed_time ? `${(node.elapsed_time / 1000).toFixed(2)}s` : 'N/A',
+                  node_type: node.node_type,
+                  outputs: node.outputs
+                })
+              })
+            }
+            
+            console.log('⏰ Analysis completed at:', new Date().toLocaleString())
+            console.groupEnd()
           }
           isStreaming.value = false
           currentStreamController.value = null
@@ -249,10 +277,10 @@ export const useAIAnalysisStore = defineStore('aiAnalysis', () => {
 
     try {
       // Get task summary reports
-      const summaryResponse = await reportApi.getTaskSummaryReports({
+      const summaryResponse = await reportApi.getSummaryByTaskId({
         taskId: selectedTaskId.value,
         page: 0,
-        size: 10
+        pageSize: 10
       })
 
       if (summaryResponse.data && summaryResponse.data.length > 0) {
@@ -281,11 +309,11 @@ export const useAIAnalysisStore = defineStore('aiAnalysis', () => {
         
         message.content += '💡 **分析建议**: 基于以上数据剖析结果，您可以进一步询问具体的数据质量问题、表结构分析或数据分布情况。\n\n'
       } else {
-        message.content += '⚠️ 暂无分析报告数据，可能分析任务尚未完成或数据为空。\n\n'
+        // message.content += '\r\n⚠️ 暂无分析报告数据，可能分析任务尚未完成或数据为空。\n\n'
       }
     } catch (error) {
       console.error('Failed to fetch analysis report:', error)
-      message.content += `❌ 获取分析报告失败: ${error instanceof Error ? error.message : '未知错误'}\n\n`
+      // message.content += `❌ 获取分析报告失败: ${error instanceof Error ? error.message : '未知错误'}\n\n`
     }
   }
 

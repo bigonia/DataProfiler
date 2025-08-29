@@ -193,10 +193,15 @@ const formatNodeType = (nodeType?: string) => {
   return typeMap[nodeType || ''] || nodeType || '未知类型'
 }
 
-const formatDuration = (ms: number) => {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  return `${(ms / 60000).toFixed(1)}min`
+const formatDuration = (seconds: number) => {
+  // Input is already in seconds, no need to convert from milliseconds
+  if (seconds < 60) {
+    return `${seconds.toFixed(2)}s`
+  }
+  if (seconds < 3600) {
+    return `${(seconds / 60).toFixed(1)}min`
+  }
+  return `${(seconds / 3600).toFixed(1)}h`
 }
 </script>
 
@@ -278,20 +283,38 @@ const formatDuration = (ms: number) => {
 }
 
 .node-icon {
-  font-size: 20px;
+  font-size: 26px;
   color: #909399;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(144, 147, 153, 0.1);
+  min-width: 46px;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
 }
 
 .node-icon.icon-success {
   color: #67c23a;
+  background: rgba(103, 194, 58, 0.15);
 }
 
 .node-icon.icon-error {
   color: #f56c6c;
+  background: rgba(245, 108, 108, 0.15);
 }
 
 .node-icon.icon-running {
   color: #e6a23c;
+  background: rgba(230, 162, 60, 0.15);
+  animation: pulse-icon 2s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
 }
 
 .node-details {
